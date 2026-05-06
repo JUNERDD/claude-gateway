@@ -16,6 +16,7 @@ It is intentionally small: the gateway only rewrites the top-level `model` field
 - Forwards requests to `https://api.deepseek.com/anthropic`.
 - Provides local `/v1/models`, `/health/liveliness`, and `/v1/messages/count_tokens` endpoints for Claude client compatibility.
 - Syncs Claude Desktop's config library and Claude Code's `~/.claude/settings.json`.
+- Shows a structured activity timeline with expandable DeepSeek request parameters.
 - Bundles a native Swift gateway binary. It does not depend on LiteLLM, Python, or uv at runtime.
 - Runs the gateway through a per-user macOS LaunchAgent, so the model list remains available after the manager window is closed.
 
@@ -112,6 +113,8 @@ Logs are stored in:
 ```text
 ~/Library/Application Support/ClaudeDeepSeekGateway/proxy.log
 ```
+
+The app log view reads this file and renders structured request events. DeepSeek request rows can be expanded to inspect the JSON body after model-name rewriting. Very large strings and arrays are bounded in the event log to keep the local log file usable.
 
 ## Claude Desktop Configuration
 

@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.8 - 2026-05-06
+
+### Added
+
+- Added structured proxy log events for DeepSeek requests, responses, model rewrites, upstream status, and request duration.
+- Added expandable DeepSeek request parameter details in the app log view.
+
+### Changed
+
+- Replaced the raw log console with a scan-friendly event timeline.
+
 ## 1.0.7 - 2026-05-06
 
 ### Added

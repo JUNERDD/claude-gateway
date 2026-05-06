@@ -1209,114 +1209,425 @@ final class ProxySettingsStore: ObservableObject {
     }
 }
 
-// MARK: - 日志视图桥接
+// MARK: - 日志事件视图
 
-protocol LogViewSinking: AnyObject {
-    func appendVisible(_ text: String)
-    func clearVisible()
-    func replaceVisible(_ text: String)
-}
+enum GatewayLogTone {
+    case info
+    case request
+    case response
+    case warning
+    case error
 
-final class LogConsoleCoordinator: NSObject, LogViewSinking {
-    weak var textView: NSTextView?
-    /// 界面内保留的 UTF-16 长度上限，避免 NSTextStorage 撑爆内存
-    private let maxVisibleUTF16 = 450_000
-
-    private static var bodyAttributes: [NSAttributedString.Key: Any] {
-        [
-            .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
-            .foregroundColor: NSColor.labelColor,
-        ]
-    }
-
-    func appendVisible(_ text: String) {
-        guard let tv = textView, let storage = tv.textStorage, !text.isEmpty else { return }
-        let atBottom = isScrolledNearBottom()
-        storage.append(NSAttributedString(string: text, attributes: Self.bodyAttributes))
-        trimStorageIfNeeded(storage)
-        if atBottom {
-            tv.scrollToEndOfDocument(nil)
+    var color: Color {
+        switch self {
+        case .info:
+            return .secondary
+        case .request:
+            return .blue
+        case .response:
+            return .green
+        case .warning:
+            return .orange
+        case .error:
+            return .red
         }
     }
 
-    func clearVisible() {
-        textView?.string = ""
+    var symbolName: String {
+        switch self {
+        case .info:
+            return "circle"
+        case .request:
+            return "arrow.up.forward.circle.fill"
+        case .response:
+            return "checkmark.circle.fill"
+        case .warning:
+            return "exclamationmark.triangle.fill"
+        case .error:
+            return "xmark.octagon.fill"
+        }
     }
 
-    func replaceVisible(_ text: String) {
-        guard let tv = textView, let storage = tv.textStorage else { return }
-        let attr = NSAttributedString(string: text, attributes: Self.bodyAttributes)
-        storage.setAttributedString(attr)
-        trimStorageIfNeeded(storage)
-        tv.scrollToEndOfDocument(nil)
-    }
-
-    private func trimStorageIfNeeded(_ storage: NSTextStorage) {
-        let over = storage.length - maxVisibleUTF16
-        guard over > 0 else { return }
-        storage.deleteCharacters(in: NSRange(location: 0, length: over))
-    }
-
-    private func isScrolledNearBottom() -> Bool {
-        guard let scroll = textView?.enclosingScrollView,
-            let docHeight = scroll.documentView?.bounds.height
-        else { return true }
-        let visible = scroll.contentView.bounds
-        let bottomY = docHeight - visible.maxY
-        return bottomY < 120
+    var label: String {
+        switch self {
+        case .info:
+            return "Info"
+        case .request:
+            return "Request"
+        case .response:
+            return "Response"
+        case .warning:
+            return "Warning"
+        case .error:
+            return "Error"
+        }
     }
 }
 
-struct LogConsoleView: NSViewRepresentable {
-    @ObservedObject var runner: ProxyController
+struct GatewayLogField: Identifiable {
+    let id = UUID()
+    var label: String
+    var value: String
+}
 
-    func makeCoordinator() -> LogConsoleCoordinator {
-        LogConsoleCoordinator()
+struct GatewayLogEvent: Identifiable {
+    let id: String
+    var timestamp: String
+    var tone: GatewayLogTone
+    var title: String
+    var subtitle: String
+    var fields: [GatewayLogField]
+    var detailTitle: String?
+    var detailJSON: String?
+}
+
+enum GatewayLogParser {
+    private static let structuredPrefix = "CDSG_EVENT "
+
+    static func parse(_ text: String) -> [GatewayLogEvent] {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let parsed = lines.enumerated().compactMap { index, line -> GatewayLogEvent? in
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+
+            if trimmed.hasPrefix(structuredPrefix) {
+                let jsonText = String(trimmed.dropFirst(structuredPrefix.count))
+                if let event = parseStructured(jsonText, fallbackID: "structured-\(index)") {
+                    return event
+                }
+            }
+
+            return parsePlain(trimmed, index: index)
+        }
+
+        return Array(parsed.suffix(300))
     }
 
-    func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSScrollView()
-        scroll.borderType = .noBorder
-        scroll.hasVerticalScroller = true
-        scroll.hasHorizontalScroller = false
-        scroll.autohidesScrollers = true
-        scroll.drawsBackground = true
-        scroll.backgroundColor = NSColor.textBackgroundColor
+    private static func parseStructured(_ jsonText: String, fallbackID: String) -> GatewayLogEvent? {
+        guard let data = jsonText.data(using: .utf8),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return nil
+        }
 
-        let tv = NSTextView(frame: .zero)
-        tv.isEditable = false
-        tv.isSelectable = true
-        tv.isRichText = false
-        tv.isVerticallyResizable = true
-        tv.isHorizontallyResizable = false
-        tv.autoresizingMask = [.width]
-        tv.textContainerInset = NSSize(width: 10, height: 10)
-        tv.drawsBackground = true
-        tv.backgroundColor = NSColor.textBackgroundColor
-        tv.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-        tv.textColor = .labelColor
-        tv.textContainer?.widthTracksTextView = true
-        tv.textContainer?.containerSize = NSSize(width: scroll.contentSize.width, height: .greatestFiniteMagnitude)
+        let timestamp = shortTimestamp(object["timestamp"] as? String)
+        let requestID = object["requestID"] as? String
+        let id = requestID.map { "\(fallbackID)-\($0)-\(object["type"] as? String ?? "event")" } ?? fallbackID
+        let type = object["type"] as? String ?? "event"
 
-        scroll.documentView = tv
-        context.coordinator.textView = tv
-        runner.attachLogSink(context.coordinator)
+        switch type {
+        case "deepseek_request":
+            let original = object["originalModel"] as? String ?? "-"
+            let target = object["targetModel"] as? String ?? "-"
+            let method = object["method"] as? String ?? "POST"
+            let path = object["path"] as? String ?? "/v1/messages"
+            let payload = object["payload"]
+            return GatewayLogEvent(
+                id: id,
+                timestamp: timestamp,
+                tone: .request,
+                title: "DeepSeek 请求",
+                subtitle: "\(method) \(path)",
+                fields: [
+                    GatewayLogField(label: "模型", value: original == target ? target : "\(original) -> \(target)"),
+                    GatewayLogField(label: "stream", value: stringValue(object["stream"])),
+                    GatewayLogField(label: "body", value: "\(object["bodyBytes"] as? Int ?? 0) bytes"),
+                ],
+                detailTitle: "DeepSeek 参数",
+                detailJSON: prettyJSON(payload ?? object)
+            )
 
-        runner.logStore.readTail { [weak coordinator = context.coordinator] tail in
-            guard let c = coordinator else { return }
-            if !tail.isEmpty {
-                c.replaceVisible(tail)
+        case "deepseek_response":
+            let status = object["status"] as? Int ?? 0
+            let duration = object["durationMs"] as? Int ?? 0
+            return GatewayLogEvent(
+                id: id,
+                timestamp: timestamp,
+                tone: (200..<300).contains(status) ? .response : .warning,
+                title: "DeepSeek 响应",
+                subtitle: "HTTP \(status)",
+                fields: [
+                    GatewayLogField(label: "耗时", value: "\(duration) ms"),
+                    GatewayLogField(label: "request", value: shortRequestID(requestID)),
+                ],
+                detailTitle: "响应元数据",
+                detailJSON: prettyJSON(object)
+            )
+
+        case "deepseek_error":
+            return GatewayLogEvent(
+                id: id,
+                timestamp: timestamp,
+                tone: .error,
+                title: "DeepSeek 请求失败",
+                subtitle: object["message"] as? String ?? "Upstream error",
+                fields: [
+                    GatewayLogField(label: "耗时", value: "\(object["durationMs"] as? Int ?? 0) ms"),
+                    GatewayLogField(label: "request", value: shortRequestID(requestID)),
+                ],
+                detailTitle: "错误详情",
+                detailJSON: prettyJSON(object)
+            )
+
+        default:
+            return GatewayLogEvent(
+                id: id,
+                timestamp: timestamp,
+                tone: .info,
+                title: type,
+                subtitle: "结构化事件",
+                fields: [],
+                detailTitle: "事件 JSON",
+                detailJSON: prettyJSON(object)
+            )
+        }
+    }
+
+    private static func parsePlain(_ line: String, index: Int) -> GatewayLogEvent {
+        let tone: GatewayLogTone
+        if line.localizedCaseInsensitiveContains("error") || line.contains("错误") || line.contains("失败") {
+            tone = .error
+        } else if line.localizedCaseInsensitiveContains("warn") || line.contains("警告") {
+            tone = .warning
+        } else {
+            tone = .info
+        }
+
+        if line.hasPrefix("model rewrite: ") {
+            let mapping = line.replacingOccurrences(of: "model rewrite: ", with: "")
+            return GatewayLogEvent(
+                id: "plain-\(index)-\(line.hashValue)",
+                timestamp: "",
+                tone: .request,
+                title: "模型映射",
+                subtitle: mapping,
+                fields: [],
+                detailTitle: nil,
+                detailJSON: nil
+            )
+        }
+
+        return GatewayLogEvent(
+            id: "plain-\(index)-\(line.hashValue)",
+            timestamp: "",
+            tone: tone,
+            title: cleanedPlainTitle(line),
+            subtitle: "",
+            fields: [],
+            detailTitle: nil,
+            detailJSON: nil
+        )
+    }
+
+    private static func cleanedPlainTitle(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: CharacterSet(charactersIn: "—- "))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func prettyJSON(_ value: Any) -> String? {
+        guard JSONSerialization.isValidJSONObject(value),
+            let data = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys])
+        else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private static func stringValue(_ value: Any?) -> String {
+        switch value {
+        case let bool as Bool:
+            return bool ? "true" : "false"
+        case let number as NSNumber:
+            return number.stringValue
+        case let string as String:
+            return string
+        case nil:
+            return "-"
+        default:
+            return String(describing: value!)
+        }
+    }
+
+    private static func shortTimestamp(_ value: String?) -> String {
+        guard let value, !value.isEmpty else { return "" }
+        if let date = ISO8601DateFormatter().date(from: value) {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "HH:mm:ss"
+            return formatter.string(from: date)
+        }
+        return String(value.suffix(8))
+    }
+
+    private static func shortRequestID(_ value: String?) -> String {
+        guard let value, !value.isEmpty else { return "-" }
+        return String(value.prefix(8))
+    }
+}
+
+struct LogTimelineView: View {
+    @ObservedObject var runner: ProxyController
+    @State private var rawTail = ""
+    @State private var events: [GatewayLogEvent] = []
+    private let refreshTimer = Timer.publish(every: 1.2, on: .main, in: .common).autoconnect()
+
+    private var requestCount: Int {
+        events.filter { $0.tone == .request }.count
+    }
+
+    private var issueCount: Int {
+        events.filter { $0.tone == .warning || $0.tone == .error }.count
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 12) {
+                Text("活动日志")
+                    .font(.headline)
+                Text("\(events.count) 条")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Divider()
+                    .frame(height: 14)
+                Label("\(requestCount)", systemImage: "arrow.up.forward.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Label("\(issueCount)", systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(issueCount == 0 ? Color.secondary : Color.orange)
+                Spacer()
+                Button {
+                    reload()
+                } label: {
+                    Label("刷新", systemImage: "arrow.clockwise")
+                }
+                .labelStyle(.iconOnly)
+                .help("重新读取日志文件")
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+
+            Divider()
+
+            if events.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "doc.text.magnifyingglass")
+                        .font(.system(size: 30))
+                        .foregroundStyle(.secondary)
+                    Text("暂无日志")
+                        .font(.headline)
+                    Text("启动 gateway 或从 Claude 发起请求后，这里会显示事件。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(events) { event in
+                            LogEventRow(event: event)
+                            Divider()
+                                .padding(.leading, 128)
+                        }
+                    }
+                }
+                .background(Color(nsColor: .textBackgroundColor))
             }
         }
-        return scroll
+        .onAppear(perform: reload)
+        .onReceive(refreshTimer) { _ in
+            reload()
+        }
     }
 
-    func updateNSView(_ nsView: NSScrollView, context: Context) {
-        runner.attachLogSink(context.coordinator)
+    private func reload() {
+        runner.logStore.readTail(maxBytes: 1_200_000) { tail in
+            guard tail != rawTail else { return }
+            rawTail = tail
+            events = GatewayLogParser.parse(tail)
+        }
     }
+}
 
-    static func dismantleNSView(_ nsView: NSScrollView, coordinator: LogConsoleCoordinator) {
-        // sink 由下一次 make 重新绑定
+struct LogEventRow: View {
+    var event: GatewayLogEvent
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(event.timestamp.isEmpty ? "--:--:--" : event.timestamp)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 58, alignment: .leading)
+
+                Image(systemName: event.tone.symbolName)
+                    .foregroundStyle(event.tone.color)
+                    .frame(width: 18)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 8) {
+                        Text(event.title)
+                            .font(.system(.body, weight: .medium))
+                            .lineLimit(1)
+                        Text(event.tone.label)
+                            .font(.caption2)
+                            .foregroundStyle(event.tone.color)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(event.tone.color.opacity(0.10), in: Capsule())
+                    }
+                    if !event.subtitle.isEmpty {
+                        Text(event.subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .textSelection(.enabled)
+                    }
+                }
+
+                Spacer(minLength: 12)
+            }
+
+            if !event.fields.isEmpty {
+                HStack(spacing: 12) {
+                    ForEach(event.fields) { field in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(field.label.uppercased())
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text(field.value)
+                                .font(.system(.caption, design: .monospaced))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .textSelection(.enabled)
+                        }
+                    }
+                }
+                .padding(.leading, 86)
+            }
+
+            if let detailTitle = event.detailTitle, let detailJSON = event.detailJSON {
+                DisclosureGroup {
+                    ScrollView([.horizontal, .vertical]) {
+                        Text(detailJSON)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.primary)
+                            .textSelection(.enabled)
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 300)
+                    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+                    .padding(.top, 6)
+                } label: {
+                    Label(detailTitle, systemImage: "curlybraces")
+                        .font(.caption)
+                }
+                .padding(.leading, 86)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 }
 
@@ -1328,22 +1639,13 @@ final class ProxyController: ObservableObject {
 
     let logStore = PersistentLogStore()
 
-    private weak var logSink: LogViewSinking?
-
-    func attachLogSink(_ sink: LogViewSinking) {
-        logSink = sink
-    }
-
     func clearLog() {
-        logStore.clearPersistentLog { [weak self] in
-            self?.logSink?.clearVisible()
-        }
+        logStore.clearPersistentLog {}
     }
 
     private func append(_ chunk: String) {
         guard !chunk.isEmpty else { return }
         logStore.append(chunk)
-        logSink?.appendVisible(chunk)
     }
 
     func refreshStatus() {
@@ -1447,7 +1749,7 @@ struct ContentView: View {
 
             Divider()
 
-            LogConsoleView(runner: runner)
+            LogTimelineView(runner: runner)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             Divider()

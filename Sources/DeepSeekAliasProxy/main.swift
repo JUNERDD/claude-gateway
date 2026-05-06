@@ -1,6 +1,68 @@
 import Darwin
 import Foundation
 
+private let gatewayEventPrefix = "CDSG_EVENT "
+
+func logGatewayEvent(_ event: [String: Any]) {
+    var payload = event
+    payload["timestamp"] = ISO8601DateFormatter().string(from: Date())
+    payload["source"] = "proxy"
+    guard JSONSerialization.isValidJSONObject(payload),
+        let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
+        let line = String(data: data, encoding: .utf8)
+    else {
+        return
+    }
+    fputs("\(gatewayEventPrefix)\(line)\n", stderr)
+    fflush(stderr)
+}
+
+func loggableJSON(_ value: Any, depth: Int = 0) -> Any {
+    guard depth < 12 else { return "[depth limit]" }
+
+    switch value {
+    case let object as [String: Any]:
+        var result: [String: Any] = [:]
+        for (key, rawValue) in object {
+            result[key] = loggableJSON(rawValue, depth: depth + 1)
+        }
+        return result
+    case let array as [Any]:
+        let maxItems = 80
+        var result = array.prefix(maxItems).map { loggableJSON($0, depth: depth + 1) }
+        if array.count > maxItems {
+            result.append(["_truncated_items": array.count - maxItems])
+        }
+        return result
+    case let string as String:
+        let maxCharacters = 12_000
+        if string.count <= maxCharacters {
+            return string
+        }
+        let end = string.index(string.startIndex, offsetBy: maxCharacters)
+        return [
+            "_truncated": true,
+            "characters": string.count,
+            "preview": String(string[..<end]),
+        ]
+    case let number as NSNumber:
+        return number
+    case is NSNull:
+        return NSNull()
+    default:
+        return String(describing: value)
+    }
+}
+
+func prettyJSONObject(_ value: Any) -> String? {
+    guard JSONSerialization.isValidJSONObject(value),
+        let data = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys])
+    else {
+        return nil
+    }
+    return String(data: data, encoding: .utf8)
+}
+
 struct ProxySettings {
     var host: String = "127.0.0.1"
     var port: Int = 4000
@@ -216,11 +278,15 @@ final class HTTPConnection {
         }
 
         let settings = SettingsLoader.shared.load()
+        let requestID = UUID().uuidString
+        let originalModel = payload["model"] as? String
+        var targetModel = originalModel
         if let original = payload["model"] as? String {
             let target = original.localizedCaseInsensitiveContains("haiku")
                 ? settings.haikuTargetModel
                 : settings.nonHaikuTargetModel
             payload["model"] = target
+            targetModel = target
             if original != target {
                 fputs("model rewrite: \(original) -> \(target)\n", stderr)
             }
@@ -259,7 +325,27 @@ final class HTTPConnection {
             upstream.setValue(beta, forHTTPHeaderField: "anthropic-beta")
         }
 
-        let forwarder = UpstreamForwarder(fd: fd)
+        logGatewayEvent([
+            "type": "deepseek_request",
+            "requestID": requestID,
+            "method": "POST",
+            "path": request.path,
+            "upstreamURL": targetURLString,
+            "originalModel": originalModel ?? NSNull(),
+            "targetModel": targetModel ?? NSNull(),
+            "bodyBytes": body.count,
+            "stream": payload["stream"] ?? false,
+            "payload": loggableJSON(payload),
+            "headers": [
+                "accept": request.headers["accept"] ?? "application/json",
+                "anthropic-version": request.headers["anthropic-version"] ?? "2023-06-01",
+                "anthropic-beta": request.headers["anthropic-beta"] ?? "",
+                "content-type": "application/json",
+                "user-agent": "claude-deepseek-gateway/1.0",
+            ],
+        ])
+
+        let forwarder = UpstreamForwarder(fd: fd, requestID: requestID)
         forwarder.forward(upstream)
     }
 
@@ -349,12 +435,15 @@ final class HTTPConnection {
 
 final class UpstreamForwarder: NSObject, URLSessionDataDelegate {
     private let fd: Int32
+    private let requestID: String
+    private let startedAt = Date()
     private let done = DispatchSemaphore(value: 0)
     private var sentHeaders = false
     private var transportError: Error?
 
-    init(fd: Int32) {
+    init(fd: Int32, requestID: String) {
         self.fd = fd
+        self.requestID = requestID
     }
 
     func forward(_ request: URLRequest) {
@@ -385,6 +474,13 @@ final class UpstreamForwarder: NSObject, URLSessionDataDelegate {
     ) {
         let http = response as? HTTPURLResponse
         let status = http?.statusCode ?? 200
+        logGatewayEvent([
+            "type": "deepseek_response",
+            "requestID": requestID,
+            "status": status,
+            "durationMs": Int(Date().timeIntervalSince(startedAt) * 1000),
+            "headers": sanitizedResponseHeaders(http),
+        ])
         var header = "HTTP/1.1 \(status) \(reasonPhrase(status))\r\n"
         if let http {
             for (key, value) in http.allHeaderFields {
@@ -418,8 +514,28 @@ final class UpstreamForwarder: NSObject, URLSessionDataDelegate {
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         transportError = error
+        if let error {
+            logGatewayEvent([
+                "type": "deepseek_error",
+                "requestID": requestID,
+                "durationMs": Int(Date().timeIntervalSince(startedAt) * 1000),
+                "message": error.localizedDescription,
+            ])
+        }
         done.signal()
     }
+}
+
+func sanitizedResponseHeaders(_ response: HTTPURLResponse?) -> [String: String] {
+    guard let response else { return [:] }
+    var result: [String: String] = [:]
+    for (key, value) in response.allHeaderFields {
+        let name = String(describing: key)
+        let lower = name.lowercased()
+        guard !["set-cookie", "authorization", "x-api-key"].contains(lower) else { continue }
+        result[name] = String(describing: value)
+    }
+    return result
 }
 
 func writeAll(_ fd: Int32, _ data: Data) {
