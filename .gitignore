@@ -1,0 +1,14 @@
+.DS_Store
+.build/
+.swiftpm/
+xcuserdata/
+DerivedData/
+
+# Local app/config/runtime output
+*.log
+*.tmp
+*.bak
+
+# Secrets should only live in ~/.config/claude-deepseek-gateway.
+secrets.env
+

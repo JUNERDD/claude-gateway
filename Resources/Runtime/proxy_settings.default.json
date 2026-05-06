@@ -1,0 +1,12 @@
+{
+  "host": "127.0.0.1",
+  "port": 4000,
+  "anthropicBaseURL": "https://api.deepseek.com/anthropic",
+  "haikuTargetModel": "deepseek-v4-flash",
+  "nonHaikuTargetModel": "deepseek-v4-pro[1m]",
+  "advertisedModels": [
+    "claude-opus-4-7",
+    "claude-sonnet-4-6",
+    "claude-haiku-4-5"
+  ]
+}
