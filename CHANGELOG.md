@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.1 - 2026-05-06
+
+### Changed
+
+- Reworked installation documentation around release DMG installation.
+- Moved source-build instructions into the development path.
+- Clarified why Claude Desktop still needs a gateway config snippet.
+
+### Added
+
+- DMG packaging script at `scripts/package_dmg.sh`.
+
 ## 1.0.0 - 2026-05-06
 
 Initial release.
@@ -29,4 +41,3 @@ Initial release.
 - Runtime dependency on LiteLLM.
 - Runtime dependency on Python or uv.
 - Non-official `[1m]` Claude model aliases from default advertised models.
-

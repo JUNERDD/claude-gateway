@@ -3,6 +3,7 @@
 .swiftpm/
 xcuserdata/
 DerivedData/
+dist/
 
 # Local app/config/runtime output
 *.log
