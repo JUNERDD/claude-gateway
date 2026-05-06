@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.4 - 2026-05-06
+
+### Added
+
+- Added a visible Settings action to synchronize Claude Desktop configLibrary on demand.
+- Added detailed sync diagnostics for updated, created, already-matched, backed-up, cache-refreshed, and warning states.
+- Added automatic backup of changed Claude configLibrary JSON files before overwriting them.
+
 ## 1.0.3 - 2026-05-06
 
 ### Added

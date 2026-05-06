@@ -326,6 +326,8 @@ enum BundledRuntimeInstaller {
 struct ClaudeConfigSyncReport {
     var updated: [String] = []
     var created: [String] = []
+    var unchanged: [String] = []
+    var backups: [String] = []
     var refreshedCaches: [String] = []
     var warnings: [String] = []
 
@@ -337,6 +339,9 @@ struct ClaudeConfigSyncReport {
         if !created.isEmpty {
             parts.append("已创建 \(created.count) 个 Claude configLibrary 配置。")
         }
+        if !unchanged.isEmpty, updated.isEmpty, created.isEmpty {
+            parts.append("\(unchanged.count) 个 Claude Desktop 配置已匹配。")
+        }
         if !refreshedCaches.isEmpty {
             parts.append("已刷新 gateway 模型缓存。")
         }
@@ -347,6 +352,26 @@ struct ClaudeConfigSyncReport {
             return "未找到可同步的 Claude Desktop 配置。"
         }
         return parts.joined(separator: " ")
+    }
+
+    var detailMessage: String {
+        var lines: [String] = []
+        lines.append(userMessage)
+        appendSection("已更新", updated, to: &lines)
+        appendSection("已创建", created, to: &lines)
+        appendSection("已匹配", unchanged, to: &lines)
+        appendSection("备份", backups, to: &lines)
+        appendSection("缓存备份", refreshedCaches, to: &lines)
+        appendSection("警告", warnings, to: &lines)
+        return lines.joined(separator: "\n")
+    }
+
+    private func appendSection(_ title: String, _ values: [String], to lines: inout [String]) {
+        guard !values.isEmpty else { return }
+        lines.append("\(title):")
+        for value in values {
+            lines.append("  \(value)")
+        }
     }
 }
 
@@ -381,8 +406,7 @@ enum ClaudeDesktopConfigSync {
 
         for url in targetConfigURLs(report: &report) {
             do {
-                try updateJSONConfig(at: url, gatewayFields: gatewayFields)
-                report.updated.append(url.path)
+                try updateJSONConfig(at: url, gatewayFields: gatewayFields, report: &report)
             } catch {
                 report.warnings.append("\(url.lastPathComponent): \(error.localizedDescription)")
             }
@@ -502,7 +526,7 @@ enum ClaudeDesktopConfigSync {
         return library.appendingPathComponent("\(id).json")
     }
 
-    private static func updateJSONConfig(at url: URL, gatewayFields: [String: Any]) throws {
+    private static func updateJSONConfig(at url: URL, gatewayFields: [String: Any], report: inout ClaudeConfigSyncReport) throws {
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true,
@@ -510,6 +534,8 @@ enum ClaudeDesktopConfigSync {
         )
 
         var object: [String: Any] = [:]
+        var originalObject: [String: Any] = [:]
+        let existed = FileManager.default.fileExists(atPath: url.path)
         if let data = try? Data(contentsOf: url), !data.isEmpty {
             guard let decoded = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 throw NSError(domain: "ClaudeDesktopConfigSync", code: 1, userInfo: [
@@ -517,13 +543,28 @@ enum ClaudeDesktopConfigSync {
                 ])
             }
             object = decoded
+            originalObject = decoded
         }
 
         for (key, value) in gatewayFields {
             object[key] = value
         }
 
+        if existed, try jsonData(object) == jsonData(originalObject) {
+            report.unchanged.append(url.path)
+            return
+        }
+
+        if existed {
+            let backupURL = url.deletingLastPathComponent()
+                .appendingPathComponent("\(url.lastPathComponent).bak-\(Int(Date().timeIntervalSince1970))")
+            try FileManager.default.copyItem(at: url, to: backupURL)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backupURL.path)
+            report.backups.append(backupURL.path)
+        }
+
         try writeJSONObject(object, to: url)
+        report.updated.append(url.path)
     }
 
     private static func refreshGatewayModelCache(report: inout ClaudeConfigSyncReport) {
@@ -547,9 +588,13 @@ enum ClaudeDesktopConfigSync {
     }
 
     private static func writeJSONObject(_ object: [String: Any], to url: URL) throws {
-        let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+        let data = try jsonData(object)
         try data.write(to: url, options: .atomic)
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+
+    private static func jsonData(_ object: [String: Any]) throws -> Data {
+        try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
     }
 
     private static func isConfigJSONCandidate(_ url: URL) -> Bool {
@@ -789,6 +834,8 @@ final class ProxySettingsStore: ObservableObject {
     @Published var statusIsError: Bool = false
     @Published var runtimeStatusMessage: String = ""
     @Published var runtimeStatusIsError: Bool = false
+    @Published var claudeSyncStatusMessage: String = ""
+    @Published var claudeSyncStatusIsError: Bool = false
 
     private let configURL: URL
     private let secretsURL: URL
@@ -843,9 +890,19 @@ final class ProxySettingsStore: ObservableObject {
         localGatewayKey = secrets["LOCAL_GATEWAY_KEY"] ?? BundledRuntimeInstaller.generateLocalGatewayKey()
         statusMessage = ""
         statusIsError = false
+        claudeSyncStatusMessage = ""
+        claudeSyncStatusIsError = false
     }
 
     func save() {
+        persistSettingsAndSync(successPrefix: "已保存。")
+    }
+
+    func syncClaudeDesktopConfig() {
+        persistSettingsAndSync(successPrefix: "已同步 Claude Desktop 配置。")
+    }
+
+    private func persistSettingsAndSync(successPrefix: String) {
         do {
             if localGatewayKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 localGatewayKey = BundledRuntimeInstaller.generateLocalGatewayKey()
@@ -873,11 +930,15 @@ final class ProxySettingsStore: ObservableObject {
 
             let syncReport = ClaudeDesktopConfigSync.sync(settings: settings, localGatewayKey: localGatewayKey)
             let serviceMessage = try LaunchAgentManager.start()
-            statusMessage = "已保存。\(syncReport.userMessage) \(serviceMessage)"
+            statusMessage = "\(successPrefix)\(syncReport.userMessage) \(serviceMessage)"
             statusIsError = false
+            claudeSyncStatusMessage = "\(syncReport.detailMessage)\nLaunchAgent:\n  \(serviceMessage)"
+            claudeSyncStatusIsError = !syncReport.warnings.isEmpty
         } catch {
-            statusMessage = "保存失败：\(error.localizedDescription)"
+            statusMessage = "操作失败：\(error.localizedDescription)"
             statusIsError = true
+            claudeSyncStatusMessage = statusMessage
+            claudeSyncStatusIsError = true
         }
     }
 
@@ -1431,6 +1492,9 @@ struct SettingsView: View {
 
                 GroupBox("Claude Desktop Config") {
                     VStack(alignment: .leading, spacing: 8) {
+                        Text("完全退出 Claude Desktop 并开启 Developer Mode 后，可用同步按钮写入 configLibrary；完成后重启 Claude Desktop。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         Text(settings.claudeConfigSnippet)
                             .font(.system(.caption, design: .monospaced))
                             .textSelection(.enabled)
@@ -1438,11 +1502,30 @@ struct SettingsView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background(Color(nsColor: .textBackgroundColor))
                             .clipShape(RoundedRectangle(cornerRadius: 6))
-                        Button {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(settings.claudeConfigSnippet, forType: .string)
-                        } label: {
-                            Label("复制配置片段", systemImage: "doc.on.doc")
+                        HStack(spacing: 8) {
+                            Button {
+                                settings.syncClaudeDesktopConfig()
+                            } label: {
+                                Label("同步 Claude Desktop 配置", systemImage: "arrow.triangle.2.circlepath")
+                            }
+
+                            Button {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(settings.claudeConfigSnippet, forType: .string)
+                            } label: {
+                                Label("复制配置片段", systemImage: "doc.on.doc")
+                            }
+                        }
+
+                        if !settings.claudeSyncStatusMessage.isEmpty {
+                            Text(settings.claudeSyncStatusMessage)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(settings.claudeSyncStatusIsError ? .red : .secondary)
+                                .textSelection(.enabled)
+                                .padding(10)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color(nsColor: .textBackgroundColor))
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
                         }
                     }
                     .padding(.vertical, 6)
@@ -1482,7 +1565,7 @@ struct SettingsView: View {
             }
             .padding(20)
         }
-        .frame(width: 760, height: 720)
+        .frame(width: 780, height: 820)
     }
 }
 
