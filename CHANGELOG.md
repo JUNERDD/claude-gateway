@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.3 - 2026-05-06
+
+### Added
+
+- Added configLibrary discovery that reads `_meta.json`, scans internal JSON config files, and ignores temporary/backup files.
+- Added automatic creation of a default Claude-3p configLibrary entry when no usable entry exists.
+- Added automatic refresh of Claude's gateway model cache when settings are saved or the gateway is started.
+- Extended doctor output with configLibrary discovery and stale gateway model cache checks.
+
 ## 1.0.2 - 2026-05-06
 
 ### Added

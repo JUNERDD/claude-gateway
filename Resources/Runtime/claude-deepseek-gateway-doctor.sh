@@ -52,6 +52,20 @@ read_models_json() {
     || printf '%s\n' '["claude-opus-4-7","claude-sonnet-4-6","claude-haiku-4-5"]'
 }
 
+count_config_library_files() {
+  local dir count=0
+  for dir in \
+    "${HOME}/Library/Application Support/Claude-3p/configLibrary" \
+    "${HOME}/Library/Application Support/Claude/configLibrary"; do
+    [[ -d "$dir" ]] || continue
+    while IFS= read -r _; do
+      count=$((count + 1))
+    done < <(find "$dir" -maxdepth 1 -type f -name '*.json' \
+      ! -name '_meta.json' ! -name '*.tmp' ! -name '*.bak*' ! -name '*bak-*' 2>/dev/null)
+  done
+  printf '%s\n' "$count"
+}
+
 echo "=== claude-deepseek-gateway doctor ==="
 
 ensure_bin_path
@@ -152,6 +166,12 @@ echo "  inferenceGatewayBaseUrl: http://${CFG_HOST}:${CFG_PORT}"
 echo "  inferenceGatewayAuthScheme: bearer"
 echo "  inferenceGatewayApiKey: 与 LOCAL_GATEWAY_KEY 相同"
 echo "  inferenceModels: ${MODELS_JSON}"
+echo "  configLibrary 可识别配置文件数: $(count_config_library_files)"
+if [[ -f "${HOME}/.claude/cache/gateway-models.json" ]]; then
+  warn "检测到旧 gateway 模型缓存: ~/.claude/cache/gateway-models.json（app 保存/启动时会自动刷新）"
+else
+  info "gateway 模型缓存未发现旧文件。"
+fi
 echo ""
 info "当前代理只做模型名改写，其余 Anthropic Messages 请求体由 DeepSeek 官方 /anthropic 端点处理:"
 echo "  任意包含 haiku 的模型 -> ${HAIKU_TARGET}"

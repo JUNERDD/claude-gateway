@@ -325,12 +325,20 @@ enum BundledRuntimeInstaller {
 
 struct ClaudeConfigSyncReport {
     var updated: [String] = []
+    var created: [String] = []
+    var refreshedCaches: [String] = []
     var warnings: [String] = []
 
     var userMessage: String {
         var parts: [String] = []
         if !updated.isEmpty {
-            parts.append("已同步 Claude Desktop 配置。")
+            parts.append("已同步 \(updated.count) 个 Claude Desktop 配置。")
+        }
+        if !created.isEmpty {
+            parts.append("已创建 \(created.count) 个 Claude configLibrary 配置。")
+        }
+        if !refreshedCaches.isEmpty {
+            parts.append("已刷新 gateway 模型缓存。")
         }
         if !warnings.isEmpty {
             parts.append("警告：\(warnings.joined(separator: "；"))")
@@ -343,6 +351,12 @@ struct ClaudeConfigSyncReport {
 }
 
 enum ClaudeDesktopConfigSync {
+    private struct ConfigLibraryLocation {
+        var appName: String
+        var libraryURL: URL
+        var canCreate: Bool
+    }
+
     static func syncCurrentDiskConfig() -> ClaudeConfigSyncReport {
         let settings = readDiskSettings()
         let secrets = readSecrets()
@@ -365,7 +379,7 @@ enum ClaudeDesktopConfigSync {
             "inferenceModels": settings.advertisedModels,
         ]
 
-        for url in targetConfigURLs() {
+        for url in targetConfigURLs(report: &report) {
             do {
                 try updateJSONConfig(at: url, gatewayFields: gatewayFields)
                 report.updated.append(url.path)
@@ -374,31 +388,127 @@ enum ClaudeDesktopConfigSync {
             }
         }
 
-        if report.updated.isEmpty, report.warnings.isEmpty {
-            report.warnings.append("没有发现 Claude-3p 当前配置文件")
+        refreshGatewayModelCache(report: &report)
+
+        if report.updated.isEmpty, report.created.isEmpty {
+            report.warnings.append("没有发现可同步的 Claude configLibrary 配置文件")
         }
         return report
     }
 
-    private static func targetConfigURLs() -> [URL] {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support", isDirectory: true)
-        let library = appSupport.appendingPathComponent("Claude-3p/configLibrary", isDirectory: true)
-        let metaURL = library.appendingPathComponent("_meta.json")
+    private static func targetConfigURLs(report: inout ClaudeConfigSyncReport) -> [URL] {
+        var result: [URL] = []
+        var seen = Set<String>()
 
-        guard let data = try? Data(contentsOf: metaURL),
-            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let appliedId = object["appliedId"] as? String,
-            !appliedId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else {
-            return []
+        for location in configLibraryLocations() {
+            var urls = discoverConfigURLs(in: location.libraryURL)
+            if urls.isEmpty, location.canCreate {
+                do {
+                    let created = try createDefaultConfig(in: location.libraryURL)
+                    report.created.append(created.path)
+                    urls = [created]
+                } catch {
+                    report.warnings.append("\(location.appName) configLibrary 创建失败：\(error.localizedDescription)")
+                }
+            }
+
+            for url in urls {
+                let key = url.standardizedFileURL.path
+                guard !seen.contains(key) else { continue }
+                seen.insert(key)
+                result.append(url)
+            }
         }
 
-        let url = library.appendingPathComponent("\(appliedId).json")
-        return FileManager.default.fileExists(atPath: url.path) ? [url] : []
+        return result
+    }
+
+    private static func configLibraryLocations() -> [ConfigLibraryLocation] {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support", isDirectory: true)
+        return [
+            ConfigLibraryLocation(
+                appName: "Claude-3p",
+                libraryURL: appSupport.appendingPathComponent("Claude-3p/configLibrary", isDirectory: true),
+                canCreate: true
+            ),
+            ConfigLibraryLocation(
+                appName: "Claude",
+                libraryURL: appSupport.appendingPathComponent("Claude/configLibrary", isDirectory: true),
+                canCreate: false
+            ),
+        ]
+    }
+
+    private static func discoverConfigURLs(in library: URL) -> [URL] {
+        var urls: [URL] = []
+        var seen = Set<String>()
+
+        func append(_ url: URL) {
+            let key = url.standardizedFileURL.path
+            guard !seen.contains(key) else { return }
+            seen.insert(key)
+            urls.append(url)
+        }
+
+        let metaURL = library.appendingPathComponent("_meta.json")
+        if let meta = readJSONObject(at: metaURL) {
+            if let appliedId = safeConfigID(meta["appliedId"] as? String) {
+                append(library.appendingPathComponent("\(appliedId).json"))
+            }
+
+            if let entries = meta["entries"] as? [[String: Any]] {
+                for entry in entries {
+                    guard let id = safeConfigID(entry["id"] as? String) else { continue }
+                    append(library.appendingPathComponent("\(id).json"))
+                }
+            }
+        }
+
+        let fm = FileManager.default
+        let files = (try? fm.contentsOfDirectory(
+            at: library,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+
+        for url in files {
+            guard isConfigJSONCandidate(url), readJSONObject(at: url) != nil else { continue }
+            append(url)
+        }
+
+        return urls
+    }
+
+    private static func createDefaultConfig(in library: URL) throws -> URL {
+        let fm = FileManager.default
+        try fm.createDirectory(at: library, withIntermediateDirectories: true, attributes: [
+            .posixPermissions: 0o700,
+        ])
+
+        let metaURL = library.appendingPathComponent("_meta.json")
+        var meta = readJSONObject(at: metaURL) ?? [:]
+        let id = safeConfigID(meta["appliedId"] as? String)
+            ?? UUID().uuidString.lowercased()
+
+        meta["appliedId"] = id
+        var entries = meta["entries"] as? [[String: Any]] ?? []
+        if !entries.contains(where: { ($0["id"] as? String) == id }) {
+            entries.append(["id": id, "name": "Default"])
+        }
+        meta["entries"] = entries
+
+        try writeJSONObject(meta, to: metaURL)
+        return library.appendingPathComponent("\(id).json")
     }
 
     private static func updateJSONConfig(at url: URL, gatewayFields: [String: Any]) throws {
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+
         var object: [String: Any] = [:]
         if let data = try? Data(contentsOf: url), !data.isEmpty {
             guard let decoded = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -413,9 +523,59 @@ enum ClaudeDesktopConfigSync {
             object[key] = value
         }
 
+        try writeJSONObject(object, to: url)
+    }
+
+    private static func refreshGatewayModelCache(report: inout ClaudeConfigSyncReport) {
+        let cacheURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/cache/gateway-models.json")
+        guard FileManager.default.fileExists(atPath: cacheURL.path) else { return }
+
+        let backupURL = cacheURL.deletingLastPathComponent()
+            .appendingPathComponent("gateway-models.json.bak-\(Int(Date().timeIntervalSince1970))")
+        do {
+            try FileManager.default.moveItem(at: cacheURL, to: backupURL)
+            report.refreshedCaches.append(backupURL.path)
+        } catch {
+            report.warnings.append("gateway 模型缓存刷新失败：\(error.localizedDescription)")
+        }
+    }
+
+    private static func readJSONObject(at url: URL) -> [String: Any]? {
+        guard let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+
+    private static func writeJSONObject(_ object: [String: Any], to url: URL) throws {
         let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: url, options: .atomic)
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+
+    private static func isConfigJSONCandidate(_ url: URL) -> Bool {
+        let name = url.lastPathComponent
+        guard url.pathExtension == "json",
+            name != "_meta.json",
+            !name.hasPrefix("."),
+            !name.hasSuffix(".tmp"),
+            !name.contains(".bak")
+        else {
+            return false
+        }
+        return true
+    }
+
+    private static func safeConfigID(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let cleaned = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty,
+            !cleaned.contains("/"),
+            !cleaned.contains(":"),
+            !cleaned.contains("\0")
+        else {
+            return nil
+        }
+        return cleaned
     }
 
     private static func readDiskSettings() -> ProxyDiskSettings {
@@ -1027,7 +1187,6 @@ final class ProxyController: ObservableObject {
 
     func start() {
         refreshStatus()
-        guard !isRunning else { return }
 
         do {
             let report = try BundledRuntimeInstaller.installOrRepair()
@@ -1044,6 +1203,10 @@ final class ProxyController: ObservableObject {
         do {
             let syncReport = ClaudeDesktopConfigSync.syncCurrentDiskConfig()
             append("—— Claude Desktop 配置：\(syncReport.userMessage) ——\n")
+            guard !isRunning else {
+                append("—— 常驻服务已在运行 ——\n")
+                return
+            }
             let message = try LaunchAgentManager.start()
             append("—— \(message) ——\n")
             refreshStatus()
@@ -1139,7 +1302,7 @@ struct ContentView: View {
             guard !didAutoStart else { return }
             didAutoStart = true
             runner.refreshStatus()
-            if !runner.isRunning, BundledRuntimeInstaller.hasUsableDeepSeekAPIKey() {
+            if BundledRuntimeInstaller.hasUsableDeepSeekAPIKey() {
                 runner.start()
             }
         }
