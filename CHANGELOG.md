@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.5 - 2026-05-06
+
+### Changed
+
+- Reworked the DMG as a styled drag-install window with fixed icon placement, background artwork, and install guidance.
+- Changed DMG packaging to build into a temporary staging app instead of pre-installing into `~/Applications`, so testing the DMG follows the real production install path.
+
 ## 1.0.4 - 2026-05-06
 
 ### Added

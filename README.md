@@ -34,6 +34,8 @@ Xcode command line tools are only needed when building from source.
 
 The app installs its own local runtime on first launch. You do not need LiteLLM, Python, or uv.
 
+The release DMG is the production install path. The packaging script builds the app into a temporary staging bundle and does not pre-install it into `~/Applications`.
+
 ## First Run
 
 1. Open `Claude DeepSeek Gateway.app`.
