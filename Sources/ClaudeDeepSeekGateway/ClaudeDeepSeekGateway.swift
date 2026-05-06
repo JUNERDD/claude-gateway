@@ -323,6 +323,299 @@ enum BundledRuntimeInstaller {
     }
 }
 
+struct ClaudeConfigSyncReport {
+    var updated: [String] = []
+    var warnings: [String] = []
+
+    var userMessage: String {
+        var parts: [String] = []
+        if !updated.isEmpty {
+            parts.append("已同步 Claude Desktop 配置。")
+        }
+        if !warnings.isEmpty {
+            parts.append("警告：\(warnings.joined(separator: "；"))")
+        }
+        if parts.isEmpty {
+            return "未找到可同步的 Claude Desktop 配置。"
+        }
+        return parts.joined(separator: " ")
+    }
+}
+
+enum ClaudeDesktopConfigSync {
+    static func syncCurrentDiskConfig() -> ClaudeConfigSyncReport {
+        let settings = readDiskSettings()
+        let secrets = readSecrets()
+        return sync(settings: settings, localGatewayKey: secrets["LOCAL_GATEWAY_KEY"] ?? "")
+    }
+
+    static func sync(settings: ProxyDiskSettings, localGatewayKey: String) -> ClaudeConfigSyncReport {
+        var report = ClaudeConfigSyncReport()
+        let key = localGatewayKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else {
+            report.warnings.append("LOCAL_GATEWAY_KEY 为空，无法同步 Claude Desktop 鉴权")
+            return report
+        }
+
+        let gatewayFields: [String: Any] = [
+            "inferenceProvider": "gateway",
+            "inferenceGatewayBaseUrl": "http://\(settings.host):\(settings.port)",
+            "inferenceGatewayAuthScheme": "bearer",
+            "inferenceGatewayApiKey": key,
+            "inferenceModels": settings.advertisedModels,
+        ]
+
+        for url in targetConfigURLs() {
+            do {
+                try updateJSONConfig(at: url, gatewayFields: gatewayFields)
+                report.updated.append(url.path)
+            } catch {
+                report.warnings.append("\(url.lastPathComponent): \(error.localizedDescription)")
+            }
+        }
+
+        if report.updated.isEmpty, report.warnings.isEmpty {
+            report.warnings.append("没有发现 Claude-3p 当前配置文件")
+        }
+        return report
+    }
+
+    private static func targetConfigURLs() -> [URL] {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support", isDirectory: true)
+        let library = appSupport.appendingPathComponent("Claude-3p/configLibrary", isDirectory: true)
+        let metaURL = library.appendingPathComponent("_meta.json")
+
+        guard let data = try? Data(contentsOf: metaURL),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let appliedId = object["appliedId"] as? String,
+            !appliedId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            return []
+        }
+
+        let url = library.appendingPathComponent("\(appliedId).json")
+        return FileManager.default.fileExists(atPath: url.path) ? [url] : []
+    }
+
+    private static func updateJSONConfig(at url: URL, gatewayFields: [String: Any]) throws {
+        var object: [String: Any] = [:]
+        if let data = try? Data(contentsOf: url), !data.isEmpty {
+            guard let decoded = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw NSError(domain: "ClaudeDesktopConfigSync", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: "不是 JSON object",
+                ])
+            }
+            object = decoded
+        }
+
+        for (key, value) in gatewayFields {
+            object[key] = value
+        }
+
+        let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: url, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+
+    private static func readDiskSettings() -> ProxyDiskSettings {
+        guard let data = try? Data(contentsOf: BundledRuntimeInstaller.settingsURL),
+            let decoded = try? JSONDecoder().decode(ProxyDiskSettings.self, from: data)
+        else {
+            return .defaults
+        }
+        return ProxyDiskSettings(
+            host: decoded.host.isEmpty ? ProxyDiskSettings.defaults.host : decoded.host,
+            port: decoded.port,
+            anthropicBaseURL: decoded.anthropicBaseURL.isEmpty ? ProxyDiskSettings.defaults.anthropicBaseURL : decoded.anthropicBaseURL,
+            haikuTargetModel: decoded.haikuTargetModel.isEmpty ? ProxyDiskSettings.defaults.haikuTargetModel : decoded.haikuTargetModel,
+            nonHaikuTargetModel: decoded.nonHaikuTargetModel.isEmpty ? ProxyDiskSettings.defaults.nonHaikuTargetModel : decoded.nonHaikuTargetModel,
+            advertisedModels: decoded.advertisedModels.isEmpty ? ProxyDiskSettings.defaultAdvertisedModels : decoded.advertisedModels
+        )
+    }
+
+    private static func readSecrets() -> [String: String] {
+        guard let text = try? String(contentsOf: BundledRuntimeInstaller.secretsURL, encoding: .utf8) else {
+            return [:]
+        }
+
+        var values: [String: String] = [:]
+        for rawLine in text.split(whereSeparator: \.isNewline) {
+            guard let (key, value) = parseExportLine(String(rawLine)) else { continue }
+            values[key] = value
+        }
+        return values
+    }
+
+    private static func parseExportLine(_ line: String) -> (String, String)? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("export ") else { return nil }
+        let rest = trimmed.dropFirst("export ".count)
+        guard let equals = rest.firstIndex(of: "=") else { return nil }
+        let key = String(rest[..<equals]).trimmingCharacters(in: .whitespacesAndNewlines)
+        var value = String(rest[rest.index(after: equals)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.hasPrefix("\""), value.hasSuffix("\""), value.count >= 2 {
+            value = String(value.dropFirst().dropLast())
+            value = unescapeDoubleQuoted(value)
+        } else if value.hasPrefix("'"), value.hasSuffix("'"), value.count >= 2 {
+            value = String(value.dropFirst().dropLast())
+        }
+        return key.isEmpty ? nil : (key, value)
+    }
+
+    private static func unescapeDoubleQuoted(_ value: String) -> String {
+        var result = ""
+        var escaping = false
+        for ch in value {
+            if escaping {
+                result.append(ch)
+                escaping = false
+            } else if ch == "\\" {
+                escaping = true
+            } else {
+                result.append(ch)
+            }
+        }
+        if escaping {
+            result.append("\\")
+        }
+        return result
+    }
+}
+
+enum LaunchAgentManager {
+    static let label = "local.zen.ClaudeDeepSeekGateway.proxy"
+
+    static var plistURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/LaunchAgents/\(label).plist")
+    }
+
+    private static var domain: String {
+        "gui/\(getuid())"
+    }
+
+    private static var serviceTarget: String {
+        "\(domain)/\(label)"
+    }
+
+    private static var logURL: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support", isDirectory: true)
+        return base.appendingPathComponent("ClaudeDeepSeekGateway/proxy.log")
+    }
+
+    static func start() throws -> String {
+        try writePlist()
+        _ = runLaunchctl(["bootout", serviceTarget])
+
+        let bootstrap = runLaunchctl(["bootstrap", domain, plistURL.path])
+        guard bootstrap.exitCode == 0 else {
+            throw NSError(domain: "LaunchAgentManager", code: Int(bootstrap.exitCode), userInfo: [
+                NSLocalizedDescriptionKey: bootstrap.output.isEmpty ? "launchctl bootstrap 失败" : bootstrap.output,
+            ])
+        }
+
+        let kickstart = runLaunchctl(["kickstart", "-k", serviceTarget])
+        guard kickstart.exitCode == 0 else {
+            throw NSError(domain: "LaunchAgentManager", code: Int(kickstart.exitCode), userInfo: [
+                NSLocalizedDescriptionKey: kickstart.output.isEmpty ? "launchctl kickstart 失败" : kickstart.output,
+            ])
+        }
+
+        Thread.sleep(forTimeInterval: 0.6)
+        if let pid = runningPID() {
+            return "常驻服务已启动 (PID \(pid))。"
+        }
+        return "常驻服务已交给 launchd 启动。"
+    }
+
+    static func stop() -> String {
+        let result = runLaunchctl(["bootout", serviceTarget])
+        if result.exitCode == 0 {
+            return "常驻服务已停止。"
+        }
+        if result.output.localizedCaseInsensitiveContains("No such process")
+            || result.output.localizedCaseInsensitiveContains("not found")
+        {
+            return "常驻服务未运行。"
+        }
+        return "停止常驻服务失败：\(result.output)"
+    }
+
+    static func runningPID() -> Int32? {
+        let result = runLaunchctl(["print", serviceTarget])
+        guard result.exitCode == 0 else { return nil }
+        for rawLine in result.output.split(whereSeparator: \.isNewline) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard line.hasPrefix("pid = ") else { continue }
+            let value = line.dropFirst("pid = ".count).trimmingCharacters(in: .whitespacesAndNewlines)
+            return Int32(value)
+        }
+        return nil
+    }
+
+    private static func writePlist() throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: plistURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fm.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [
+            .posixPermissions: 0o700,
+        ])
+
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let plist: [String: Any] = [
+            "Label": label,
+            "ProgramArguments": [
+                "/bin/zsh",
+                "-lc",
+                "exec \"$HOME/bin/claude-deepseek-gateway-proxy.sh\"",
+            ],
+            "RunAtLoad": true,
+            "KeepAlive": [
+                "SuccessfulExit": false,
+            ],
+            "ThrottleInterval": 10,
+            "WorkingDirectory": home,
+            "StandardOutPath": logURL.path,
+            "StandardErrorPath": logURL.path,
+            "EnvironmentVariables": [
+                "HOME": home,
+                "USER": NSUserName(),
+                "PATH": "\(home)/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+                "NO_COLOR": "1",
+            ],
+        ]
+
+        let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+        try data.write(to: plistURL, options: .atomic)
+        try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: plistURL.path)
+    }
+
+    private static func runLaunchctl(_ arguments: [String]) -> (exitCode: Int32, output: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        process.arguments = arguments
+
+        let out = Pipe()
+        let err = Pipe()
+        process.standardOutput = out
+        process.standardError = err
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return (1, error.localizedDescription)
+        }
+
+        let outData = out.fileHandleForReading.readDataToEndOfFile()
+        let errData = err.fileHandleForReading.readDataToEndOfFile()
+        let output = String(decoding: outData + errData, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (process.terminationStatus, output)
+    }
+}
+
 final class ProxySettingsStore: ObservableObject {
     @Published var host: String = ProxyDiskSettings.defaults.host
     @Published var portText: String = String(ProxyDiskSettings.defaults.port)
@@ -361,6 +654,7 @@ final class ProxySettingsStore: ObservableObject {
 
     var claudeConfigSnippet: String {
         let payload: [String: Any] = [
+            "inferenceProvider": "gateway",
             "inferenceGatewayBaseUrl": "http://\(hostTrimmed):\(portText.trimmingCharacters(in: .whitespacesAndNewlines))",
             "inferenceGatewayAuthScheme": "bearer",
             "inferenceGatewayApiKey": localGatewayKey,
@@ -417,7 +711,9 @@ final class ProxySettingsStore: ObservableObject {
             try Data(secrets.utf8).write(to: secretsURL, options: .atomic)
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: secretsURL.path)
 
-            statusMessage = "已保存。模型列表和映射会被运行中的代理按请求重新读取；监听地址或端口变更需要重启代理。"
+            let syncReport = ClaudeDesktopConfigSync.sync(settings: settings, localGatewayKey: localGatewayKey)
+            let serviceMessage = try LaunchAgentManager.start()
+            statusMessage = "已保存。\(syncReport.userMessage) \(serviceMessage)"
             statusIsError = false
         } catch {
             statusMessage = "保存失败：\(error.localizedDescription)"
@@ -699,7 +995,7 @@ struct LogConsoleView: NSViewRepresentable {
     }
 }
 
-// MARK: - Process runner
+// MARK: - Gateway service controller
 
 @MainActor
 final class ProxyController: ObservableObject {
@@ -708,9 +1004,6 @@ final class ProxyController: ObservableObject {
     let logStore = PersistentLogStore()
 
     private weak var logSink: LogViewSinking?
-    private var child: Process?
-    private var outHandle: FileHandle?
-    private var errHandle: FileHandle?
 
     func attachLogSink(_ sink: LogViewSinking) {
         logSink = sink
@@ -728,7 +1021,12 @@ final class ProxyController: ObservableObject {
         logSink?.appendVisible(chunk)
     }
 
+    func refreshStatus() {
+        isRunning = LaunchAgentManager.runningPID() != nil
+    }
+
     func start() {
+        refreshStatus()
         guard !isRunning else { return }
 
         do {
@@ -743,116 +1041,21 @@ final class ProxyController: ObservableObject {
             return
         }
 
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let startPath = BundledRuntimeInstaller.startScriptURL.path
-
-        guard FileManager.default.isExecutableFile(atPath: startPath) else {
-            let msg = "错误：不可执行或不存在 \(startPath)\n"
-            append(msg)
-            return
-        }
-
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        let cmd =
-            "export PATH=\"\(home)/bin:$PATH\" NO_COLOR=1 && exec \"\(startPath)\""
-        proc.arguments = ["-lc", cmd]
-
-        var env = ProcessInfo.processInfo.environment
-        env["HOME"] = home
-        env["USER"] = NSUserName()
-        env["NO_COLOR"] = "1"
-        proc.environment = env
-        proc.currentDirectoryURL = URL(fileURLWithPath: home)
-
-        let outPipe = Pipe()
-        let errPipe = Pipe()
-        proc.standardOutput = outPipe
-        proc.standardError = errPipe
-        proc.standardInput = FileHandle.nullDevice
-
-        let o = outPipe.fileHandleForReading
-        let e = errPipe.fileHandleForReading
-        outHandle = o
-        errHandle = e
-
-        o.readabilityHandler = { [weak self] h in
-            let data = h.availableData
-            if data.isEmpty {
-                h.readabilityHandler = nil
-                return
-            }
-            let s = String(decoding: data, as: UTF8.self)
-            Task { @MainActor in self?.append(s) }
-        }
-        e.readabilityHandler = { [weak self] h in
-            let data = h.availableData
-            if data.isEmpty {
-                h.readabilityHandler = nil
-                return
-            }
-            let s = String(decoding: data, as: UTF8.self)
-            Task { @MainActor in self?.append(s) }
-        }
-
-        proc.terminationHandler = { [weak self] p in
-            Task { @MainActor in
-                self?.finishRun(exitCode: p.terminationStatus)
-            }
-        }
-
         do {
-            try proc.run()
+            let syncReport = ClaudeDesktopConfigSync.syncCurrentDiskConfig()
+            append("—— Claude Desktop 配置：\(syncReport.userMessage) ——\n")
+            let message = try LaunchAgentManager.start()
+            append("—— \(message) ——\n")
+            refreshStatus()
         } catch {
             append("启动失败: \(error.localizedDescription)\n")
-            clearHandlers()
-            return
         }
-
-        child = proc
-        isRunning = true
-        append("—— Claude DeepSeek Gateway：已启动 (PID \(proc.processIdentifier)) ——\n")
     }
 
     func stop() {
-        guard let proc = child else {
-            isRunning = false
-            clearHandlers()
-            return
-        }
-        guard proc.isRunning else {
-            child = nil
-            isRunning = false
-            clearHandlers()
-            return
-        }
-
-        append("—— 正在请求停止 (SIGTERM) ——\n")
-        proc.terminate()
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
-            Task { @MainActor in
-                guard let self, let p = self.child, p.isRunning else { return }
-                self.append("—— 仍未退出，发送 SIGKILL ——\n")
-                kill(p.processIdentifier, SIGKILL)
-            }
-        }
-    }
-
-    private func finishRun(exitCode: Int32) {
-        clearHandlers()
-        child = nil
-        isRunning = false
-        append("—— 进程已结束，退出码 \(exitCode) ——\n")
-    }
-
-    private func clearHandlers() {
-        outHandle?.readabilityHandler = nil
-        errHandle?.readabilityHandler = nil
-        try? outHandle?.close()
-        try? errHandle?.close()
-        outHandle = nil
-        errHandle = nil
+        append("—— 正在停止常驻服务 ——\n")
+        append("—— \(LaunchAgentManager.stop()) ——\n")
+        refreshStatus()
     }
 }
 
@@ -861,6 +1064,7 @@ final class ProxyController: ObservableObject {
 struct ContentView: View {
     @StateObject private var runner = ProxyController()
     @Environment(\.openSettings) private var openSettings
+    @State private var didAutoStart = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -931,6 +1135,14 @@ struct ContentView: View {
                 .background(Color(nsColor: .controlBackgroundColor))
         }
         .frame(minWidth: 760, minHeight: 540)
+        .onAppear {
+            guard !didAutoStart else { return }
+            didAutoStart = true
+            runner.refreshStatus()
+            if !runner.isRunning, BundledRuntimeInstaller.hasUsableDeepSeekAPIKey() {
+                runner.start()
+            }
+        }
     }
 }
 

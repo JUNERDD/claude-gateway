@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.2 - 2026-05-06
+
+### Added
+
+- Added a per-user LaunchAgent so the gateway stays available to Claude Desktop after the manager window is closed.
+- Added automatic Claude-3p active config synchronization for gateway URL, auth scheme, local key, and visible model list.
+
+### Changed
+
+- Saving settings now starts/restarts the LaunchAgent-backed gateway automatically.
+- The manager window auto-starts the gateway on launch when a DeepSeek API key is already configured.
+- Documentation now treats the Claude Desktop config snippet as a fallback instead of the normal setup path.
+
 ## 1.0.1 - 2026-05-06
 
 ### Changed
