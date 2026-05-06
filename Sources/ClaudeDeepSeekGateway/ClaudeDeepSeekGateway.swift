@@ -327,6 +327,9 @@ struct ClaudeConfigSyncReport {
     var updated: [String] = []
     var created: [String] = []
     var unchanged: [String] = []
+    var updatedClaudeCodeSettings: [String] = []
+    var createdClaudeCodeSettings: [String] = []
+    var unchangedClaudeCodeSettings: [String] = []
     var backups: [String] = []
     var refreshedCaches: [String] = []
     var warnings: [String] = []
@@ -341,6 +344,11 @@ struct ClaudeConfigSyncReport {
         }
         if !unchanged.isEmpty, updated.isEmpty, created.isEmpty {
             parts.append("\(unchanged.count) 个 Claude Desktop 配置已匹配。")
+        }
+        if !updatedClaudeCodeSettings.isEmpty || !createdClaudeCodeSettings.isEmpty {
+            parts.append("已同步 Claude Code 配置。")
+        } else if !unchangedClaudeCodeSettings.isEmpty, updated.isEmpty, created.isEmpty, refreshedCaches.isEmpty {
+            parts.append("Claude Code 配置已匹配。")
         }
         if !refreshedCaches.isEmpty {
             parts.append("已刷新 gateway 模型缓存。")
@@ -360,6 +368,9 @@ struct ClaudeConfigSyncReport {
         appendSection("已更新", updated, to: &lines)
         appendSection("已创建", created, to: &lines)
         appendSection("已匹配", unchanged, to: &lines)
+        appendSection("Claude Code 已更新", updatedClaudeCodeSettings, to: &lines)
+        appendSection("Claude Code 已创建", createdClaudeCodeSettings, to: &lines)
+        appendSection("Claude Code 已匹配", unchangedClaudeCodeSettings, to: &lines)
         appendSection("备份", backups, to: &lines)
         appendSection("缓存备份", refreshedCaches, to: &lines)
         appendSection("警告", warnings, to: &lines)
@@ -392,7 +403,7 @@ enum ClaudeDesktopConfigSync {
         var report = ClaudeConfigSyncReport()
         let key = localGatewayKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else {
-            report.warnings.append("LOCAL_GATEWAY_KEY 为空，无法同步 Claude Desktop 鉴权")
+            report.warnings.append("LOCAL_GATEWAY_KEY 为空，无法同步 Claude 客户端鉴权")
             return report
         }
 
@@ -404,7 +415,12 @@ enum ClaudeDesktopConfigSync {
             "inferenceModels": settings.advertisedModels,
         ]
 
-        for url in targetConfigURLs(report: &report) {
+        let configURLs = targetConfigURLs(report: &report)
+        if configURLs.isEmpty {
+            report.warnings.append("没有发现可同步的 Claude configLibrary 配置文件")
+        }
+
+        for url in configURLs {
             do {
                 try updateJSONConfig(at: url, gatewayFields: gatewayFields, report: &report)
             } catch {
@@ -412,11 +428,8 @@ enum ClaudeDesktopConfigSync {
             }
         }
 
+        syncClaudeCodeSettings(settings: settings, localGatewayKey: key, report: &report)
         refreshGatewayModelCache(report: &report)
-
-        if report.updated.isEmpty, report.created.isEmpty {
-            report.warnings.append("没有发现可同步的 Claude configLibrary 配置文件")
-        }
         return report
     }
 
@@ -556,8 +569,7 @@ enum ClaudeDesktopConfigSync {
         }
 
         if existed {
-            let backupURL = url.deletingLastPathComponent()
-                .appendingPathComponent("\(url.lastPathComponent).bak-\(Int(Date().timeIntervalSince1970))")
+            let backupURL = backupURL(for: url)
             try FileManager.default.copyItem(at: url, to: backupURL)
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backupURL.path)
             report.backups.append(backupURL.path)
@@ -580,6 +592,98 @@ enum ClaudeDesktopConfigSync {
         } catch {
             report.warnings.append("gateway 模型缓存刷新失败：\(error.localizedDescription)")
         }
+    }
+
+    private static func syncClaudeCodeSettings(settings: ProxyDiskSettings, localGatewayKey: String, report: inout ClaudeConfigSyncReport) {
+        let settingsURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/settings.json")
+        let existed = FileManager.default.fileExists(atPath: settingsURL.path)
+
+        do {
+            try FileManager.default.createDirectory(
+                at: settingsURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+
+            var object: [String: Any] = [:]
+            var originalObject: [String: Any] = [:]
+            if existed, let data = try? Data(contentsOf: settingsURL), !data.isEmpty {
+                guard let decoded = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    report.warnings.append("Claude Code settings.json 不是 JSON object")
+                    return
+                }
+                object = decoded
+                originalObject = decoded
+            }
+
+            guard object["env"] == nil || object["env"] is [String: Any] else {
+                report.warnings.append("Claude Code settings.json 的 env 不是 JSON object")
+                return
+            }
+
+            var env = object["env"] as? [String: Any] ?? [:]
+            env["ANTHROPIC_BASE_URL"] = "http://\(settings.host):\(settings.port)"
+            env["ANTHROPIC_AUTH_TOKEN"] = localGatewayKey
+            if (env["API_TIMEOUT_MS"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true {
+                env["API_TIMEOUT_MS"] = "3000000"
+            }
+            object["env"] = env
+
+            if let model = object["model"] as? String,
+                let normalizedModel = normalizedClaudeCodeModel(model)
+            {
+                object["model"] = normalizedModel
+            } else if (object["model"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true {
+                object["model"] = "opus"
+            }
+
+            if existed, try jsonData(object) == jsonData(originalObject) {
+                report.unchangedClaudeCodeSettings.append(settingsURL.path)
+                return
+            }
+
+            if existed {
+                let backupURL = backupURL(for: settingsURL)
+                try FileManager.default.copyItem(at: settingsURL, to: backupURL)
+                try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backupURL.path)
+                report.backups.append(backupURL.path)
+            }
+
+            try writeJSONObject(object, to: settingsURL)
+            if existed {
+                report.updatedClaudeCodeSettings.append(settingsURL.path)
+            } else {
+                report.createdClaudeCodeSettings.append(settingsURL.path)
+            }
+        } catch {
+            report.warnings.append("Claude Code settings.json 同步失败：\(error.localizedDescription)")
+        }
+    }
+
+    private static func normalizedClaudeCodeModel(_ model: String) -> String? {
+        switch model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "opus[1m]":
+            return "opus"
+        case "sonnet[1m]":
+            return "sonnet"
+        case "haiku[1m]":
+            return "haiku"
+        default:
+            return nil
+        }
+    }
+
+    private static func backupURL(for url: URL) -> URL {
+        let directory = url.deletingLastPathComponent()
+        let baseName = "\(url.lastPathComponent).bak-\(Int(Date().timeIntervalSince1970))"
+        var candidate = directory.appendingPathComponent(baseName)
+        var counter = 2
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            candidate = directory.appendingPathComponent("\(baseName)-\(counter)")
+            counter += 1
+        }
+        return candidate
     }
 
     private static func readJSONObject(at url: URL) -> [String: Any]? {
@@ -1492,7 +1596,7 @@ struct SettingsView: View {
 
                 GroupBox("Claude Desktop Config") {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("完全退出 Claude Desktop 并开启 Developer Mode 后，可用同步按钮写入 configLibrary；完成后重启 Claude Desktop。")
+                        Text("完全退出 Claude Desktop 并开启 Developer Mode 后，可用同步按钮写入 configLibrary；同时会合并 ~/.claude/settings.json，让 Claude Code 指向本地 gateway。完成后重启 Claude Desktop，并重新打开 Claude Code 会话。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Text(settings.claudeConfigSnippet)
@@ -1506,7 +1610,7 @@ struct SettingsView: View {
                             Button {
                                 settings.syncClaudeDesktopConfig()
                             } label: {
-                                Label("同步 Claude Desktop 配置", systemImage: "arrow.triangle.2.circlepath")
+                                Label("同步 Claude 客户端配置", systemImage: "arrow.triangle.2.circlepath")
                             }
 
                             Button {

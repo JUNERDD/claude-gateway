@@ -172,6 +172,35 @@ if [[ -f "${HOME}/.claude/cache/gateway-models.json" ]]; then
 else
   info "gateway 模型缓存未发现旧文件。"
 fi
+
+echo ""
+info "Claude Code 配置："
+if [[ -f "${HOME}/.claude/settings.json" ]]; then
+  cc_base="$(
+    /usr/bin/plutil -extract env.ANTHROPIC_BASE_URL raw "${HOME}/.claude/settings.json" 2>/dev/null || true
+  )"
+  cc_token="$(
+    /usr/bin/plutil -extract env.ANTHROPIC_AUTH_TOKEN raw "${HOME}/.claude/settings.json" 2>/dev/null || true
+  )"
+  cc_model="$(
+    /usr/bin/plutil -extract model raw "${HOME}/.claude/settings.json" 2>/dev/null || true
+  )"
+  echo "  ANTHROPIC_BASE_URL: ${cc_base:-未设置}"
+  echo "  ANTHROPIC_AUTH_TOKEN: $([[ -n "${cc_token:-}" ]] && printf '已设置' || printf '未设置')"
+  echo "  model: ${cc_model:-未设置}"
+  if [[ "${cc_base:-}" == "http://${CFG_HOST}:${CFG_PORT}" ]]; then
+    info "Claude Code base URL 已指向本地 gateway。"
+  else
+    warn "Claude Code base URL 未指向本地 gateway（app 保存/同步时会自动写入）。"
+  fi
+  if [[ -n "${LOCAL_GATEWAY_KEY:-}" && "${cc_token:-}" == "${LOCAL_GATEWAY_KEY}" ]]; then
+    info "Claude Code bearer token 已匹配 LOCAL_GATEWAY_KEY。"
+  else
+    warn "Claude Code bearer token 未匹配 LOCAL_GATEWAY_KEY（app 保存/同步时会自动写入）。"
+  fi
+else
+  warn "未发现 ~/.claude/settings.json（app 保存/同步时会自动创建 Claude Code 配置）。"
+fi
 echo ""
 info "当前代理只做模型名改写，其余 Anthropic Messages 请求体由 DeepSeek 官方 /anthropic 端点处理:"
 echo "  任意包含 haiku 的模型 -> ${HAIKU_TARGET}"

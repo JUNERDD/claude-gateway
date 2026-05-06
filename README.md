@@ -1,6 +1,6 @@
 # Claude DeepSeek Gateway
 
-Claude DeepSeek Gateway is a macOS utility that lets Claude Desktop use DeepSeek's Anthropic-compatible API through a local gateway.
+Claude DeepSeek Gateway is a macOS utility that lets Claude Desktop and Claude Code use DeepSeek's Anthropic-compatible API through a local gateway.
 
 It is intentionally small: the gateway only rewrites the top-level `model` field, then forwards the Anthropic Messages request body to DeepSeek unchanged.
 
@@ -14,7 +14,8 @@ It is intentionally small: the gateway only rewrites the top-level `model` field
   - any model containing `haiku` -> `deepseek-v4-flash`
   - every other model -> `deepseek-v4-pro[1m]`
 - Forwards requests to `https://api.deepseek.com/anthropic`.
-- Provides local `/v1/models`, `/health/liveliness`, and `/v1/messages/count_tokens` endpoints for Claude Desktop compatibility.
+- Provides local `/v1/models`, `/health/liveliness`, and `/v1/messages/count_tokens` endpoints for Claude client compatibility.
+- Syncs Claude Desktop's config library and Claude Code's `~/.claude/settings.json`.
 - Bundles a native Swift gateway binary. It does not depend on LiteLLM, Python, or uv at runtime.
 - Runs the gateway through a per-user macOS LaunchAgent, so the model list remains available after the manager window is closed.
 
@@ -42,9 +43,9 @@ The release DMG is the production install path. The packaging script builds the 
 2. Open Settings.
 3. Paste your DeepSeek API key.
 4. Save.
-5. Restart Claude Desktop if it was already open.
+5. Restart Claude Desktop if it was already open. Start a new Claude Code session if you use Claude Code.
 
-Saving settings installs/updates the local LaunchAgent, starts the gateway, refreshes Claude's gateway model cache, and syncs Claude-3p's config library with the correct URL, bearer key, and visible model list. The Settings window also provides a `同步 Claude Desktop 配置` button for an explicit repair flow after fully quitting Claude Desktop and enabling Developer Mode.
+Saving settings installs/updates the local LaunchAgent, starts the gateway, refreshes Claude's gateway model cache, syncs Claude-3p's config library with the correct URL, bearer key, and visible model list, and merges Claude Code's `~/.claude/settings.json` with the local gateway base URL and bearer token. The Settings window also provides a `同步 Claude 客户端配置` button for an explicit repair flow after fully quitting Claude Desktop and enabling Developer Mode.
 
 The config sync discovers config library files from both `_meta.json` and the JSON files inside `configLibrary`. If Claude-3p has no config library entry yet, the app creates a default entry and applies the gateway settings there.
 
@@ -144,6 +145,29 @@ The sync action saves the current gateway settings, backs up changed configLibra
 
 If the app cannot find or create a usable Claude-3p config library entry, use the Settings window's config snippet as a manual fallback.
 
+## Claude Code Configuration
+
+When settings are saved or synchronized, the app creates or updates:
+
+```text
+~/.claude/settings.json
+```
+
+It preserves unrelated settings, merges the `env` object, and writes:
+
+```json
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:4000",
+    "ANTHROPIC_AUTH_TOKEN": "LOCAL_GATEWAY_KEY_FROM_SETTINGS",
+    "API_TIMEOUT_MS": "3000000"
+  },
+  "model": "opus"
+}
+```
+
+`model` is only added when missing or empty. Existing Claude Code model preferences are preserved, except for known legacy aliases such as `opus[1m]`, which are normalized to Claude Code's current aliases.
+
 ## Settings
 
 The app can configure:
@@ -179,6 +203,7 @@ The doctor checks:
 - token counting compatibility endpoint
 - Claude config library discovery
 - stale gateway model cache state
+- Claude Code gateway settings
 
 ## Development
 
@@ -208,7 +233,7 @@ Resources/DMG/background.png       release DMG background artwork
 
 - The gateway binds to `127.0.0.1` by default.
 - The DeepSeek API key is written only to `~/.config/claude-deepseek-gateway/secrets.env`.
-- The local gateway key is used only between Claude Desktop and the local gateway.
+- The local gateway key is used only between Claude clients and the local gateway.
 - No request payload is rewritten except the top-level `model` field.
 
 ## Troubleshooting

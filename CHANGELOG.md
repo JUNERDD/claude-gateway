@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.7 - 2026-05-06
+
+### Added
+
+- Added automatic Claude Code `~/.claude/settings.json` synchronization for local gateway base URL, bearer token, and first-run default model.
+- Extended doctor output with Claude Code gateway configuration checks.
+
+### Changed
+
+- Improved sync warnings so already-matched Claude Desktop configLibrary entries are not reported as missing.
+
 ## 1.0.6 - 2026-05-06
 
 ### Changed
