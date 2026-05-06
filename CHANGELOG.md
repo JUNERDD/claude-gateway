@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.6 - 2026-05-06
+
+### Changed
+
+- Rebuilt the DMG background as a static generated image around real Finder icons instead of drawing fake app/folder cards.
+- Sized the DMG background to the Finder content area instead of the outer window bounds, preventing scrollbars and background cropping.
+- Embedded the DMG background inside the app bundle so the installer no longer needs a visible top-level `.background` folder when Finder shows hidden files.
+
 ## 1.0.5 - 2026-05-06
 
 ### Changed

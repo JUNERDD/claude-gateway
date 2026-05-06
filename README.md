@@ -201,6 +201,7 @@ Sources/ClaudeDeepSeekGateway/     SwiftUI manager app
 Sources/DeepSeekAliasProxy/        native local gateway
 Resources/Runtime/                 bundled runtime scripts and defaults
 Resources/AppIcon.icns             app icon
+Resources/DMG/background.png       release DMG background artwork
 ```
 
 ## Security Notes
