@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Claude Desktop gateway -> DeepSeek Anthropic API.
-# Only rewrites the top-level model name; DeepSeek handles the Anthropic API shape.
+# Image inputs are saved as local attachments for Claude's bundled vision-provider MCP server.
 set -euo pipefail
 
 cd "$HOME"
@@ -48,6 +48,7 @@ echo "Claude Desktop Gateway URL: http://${HOST}:${PORT}"
 echo "Claude Desktop API Key: （secrets.env 里的 LOCAL_GATEWAY_KEY）"
 echo "配置: ${SETTINGS}"
 echo "映射: *haiku* -> ${HAIKU_TARGET}; 其他模型 -> ${OTHER_TARGET}"
+echo "图片链路: 保存为本地附件路径；Claude 通过 vision-provider MCP 调用本机 /v1/vision/describe"
 echo ""
 
 if [[ -x "$PROXY_BIN" ]]; then

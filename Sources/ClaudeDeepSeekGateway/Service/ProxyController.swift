@@ -19,12 +19,18 @@ private func currentProxyServiceStatus() -> ProxyServiceStatus {
 final class ProxyController: ObservableObject {
     @Published var isRunning: Bool = false
     @Published var runningSince: Date?
+    @Published var isStarting: Bool = false
+    @Published var isStopping: Bool = false
 
     let logStore = PersistentLogStore()
     private var runningPID: Int32?
     private var statusRefreshTask: Task<Void, Never>?
     private var startTask: Task<Void, Never>?
     private var stopTask: Task<Void, Never>?
+
+    var isBusy: Bool {
+        isStarting || isStopping
+    }
 
     func clearLog() {
         logStore.clearPersistentLog {}
@@ -59,22 +65,27 @@ final class ProxyController: ObservableObject {
 
     func start() {
         guard startTask == nil else { return }
+        guard !isRunning else { return }
+        isStarting = true
         startTask = Task { [weak self, logStore] in
             let status = await Task.detached(priority: .userInitiated) {
                 Self.startService(logStore: logStore)
             }.value
             guard let self else { return }
             self.apply(status)
+            self.isStarting = false
             self.startTask = nil
         }
     }
 
     private nonisolated static func startService(logStore: PersistentLogStore) -> ProxyServiceStatus {
-        do {
-            let report = try BundledRuntimeInstaller.installOrRepair()
-            logStore.append("—— 运行时检查：\(report.userMessage) ——\n")
-        } catch {
-            logStore.append("运行时安装/修复失败: \(error.localizedDescription)\n")
+        if !BundledRuntimeInstaller.runtimeLooksInstalled() {
+            do {
+                let report = try BundledRuntimeInstaller.installOrRepair()
+                logStore.append("—— 运行时检查：\(report.userMessage) ——\n")
+            } catch {
+                logStore.append("运行时安装/修复失败: \(error.localizedDescription)\n")
+            }
         }
 
         guard BundledRuntimeInstaller.hasUsableDeepSeekAPIKey() else {
@@ -83,8 +94,6 @@ final class ProxyController: ObservableObject {
         }
 
         do {
-            let syncReport = ClaudeDesktopConfigSync.syncCurrentDiskConfig()
-            logStore.append("—— Claude Desktop 配置：\(syncReport.userMessage) ——\n")
             guard LaunchAgentManager.runningPID() == nil else {
                 logStore.append("—— 常驻服务已在运行 ——\n")
                 return currentProxyServiceStatus()
@@ -99,6 +108,8 @@ final class ProxyController: ObservableObject {
 
     func stop() {
         guard stopTask == nil else { return }
+        guard isRunning else { return }
+        isStopping = true
         stopTask = Task { [weak self, logStore] in
             let status = await Task.detached(priority: .userInitiated) {
                 logStore.append("—— 正在停止常驻服务 ——\n")
@@ -107,6 +118,7 @@ final class ProxyController: ObservableObject {
             }.value
             guard let self else { return }
             self.apply(status)
+            self.isStopping = false
             self.stopTask = nil
         }
     }

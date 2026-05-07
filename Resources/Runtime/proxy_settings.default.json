@@ -4,6 +4,9 @@
   "anthropicBaseURL": "https://api.deepseek.com/anthropic",
   "haikuTargetModel": "deepseek-v4-flash",
   "nonHaikuTargetModel": "deepseek-v4-pro[1m]",
+  "visionProvider": "auto",
+  "visionProviderModel": "",
+  "visionProviderBaseURL": "",
   "advertisedModels": [
     "claude-opus-4-7",
     "claude-sonnet-4-6",

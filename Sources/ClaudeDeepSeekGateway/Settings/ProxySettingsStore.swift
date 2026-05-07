@@ -8,8 +8,12 @@ final class ProxySettingsStore: ObservableObject {
     @Published var anthropicBaseURL: String = ProxyDiskSettings.defaults.anthropicBaseURL
     @Published var haikuTargetModel: String = ProxyDiskSettings.defaults.haikuTargetModel
     @Published var nonHaikuTargetModel: String = ProxyDiskSettings.defaults.nonHaikuTargetModel
+    @Published var visionProvider: String = ProxyDiskSettings.defaults.visionProvider
+    @Published var visionProviderModel: String = ProxyDiskSettings.defaults.visionProviderModel
+    @Published var visionProviderBaseURL: String = ProxyDiskSettings.defaults.visionProviderBaseURL
     @Published var advertisedModelsText: String = ProxyDiskSettings.defaultAdvertisedModels.joined(separator: "\n")
     @Published var deepSeekAPIKey: String = ""
+    @Published var visionProviderAPIKey: String = ""
     @Published var localGatewayKey: String = ""
     @Published var statusMessage: String = ""
     @Published var statusIsError: Bool = false
@@ -66,11 +70,15 @@ final class ProxySettingsStore: ObservableObject {
         anthropicBaseURL = disk.anthropicBaseURL
         haikuTargetModel = disk.haikuTargetModel
         nonHaikuTargetModel = disk.nonHaikuTargetModel
+        visionProvider = disk.visionProvider
+        visionProviderModel = disk.visionProviderModel
+        visionProviderBaseURL = disk.visionProviderBaseURL
         advertisedModelsText = disk.advertisedModels.joined(separator: "\n")
 
         let secrets = readSecrets()
         let deepSeekKey = secrets["DEEPSEEK_API_KEY"] ?? ""
         deepSeekAPIKey = deepSeekKey == "replace_me" ? "" : deepSeekKey
+        visionProviderAPIKey = secrets["VISION_PROVIDER_API_KEY"] ?? ""
         localGatewayKey = secrets["LOCAL_GATEWAY_KEY"] ?? BundledRuntimeInstaller.generateLocalGatewayKey()
         statusMessage = ""
         statusIsError = false
@@ -108,13 +116,12 @@ final class ProxySettingsStore: ObservableObject {
             try data.write(to: configURL, options: .atomic)
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configURL.path)
 
-            let secrets = """
-            # Claude DeepSeek Gateway secrets.
-            export DEEPSEEK_API_KEY="\(Self.shellDoubleQuoted(deepSeekAPIKey))"
-            export LOCAL_GATEWAY_KEY="\(Self.shellDoubleQuoted(localGatewayKey))"
-
-            """
-            try Data(secrets.utf8).write(to: secretsURL, options: .atomic)
+            var secrets = readSecrets()
+            secrets["DEEPSEEK_API_KEY"] = deepSeekAPIKey
+            secrets["VISION_PROVIDER_API_KEY"] = visionProviderAPIKey
+            secrets["LOCAL_GATEWAY_KEY"] = localGatewayKey
+            let secretsText = Self.serializedSecrets(secrets)
+            try Data(secretsText.utf8).write(to: secretsURL, options: .atomic)
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: secretsURL.path)
 
             let key = localGatewayKey
@@ -213,6 +220,21 @@ final class ProxySettingsStore: ObservableObject {
 
         let haikuTarget = haikuTargetModel.trimmingCharacters(in: .whitespacesAndNewlines)
         let otherTarget = nonHaikuTargetModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanVisionProvider = ProxyDiskSettings.normalizedVisionProvider(visionProvider)
+        guard cleanVisionProvider == visionProvider.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
+            throw ProxySettingsError.invalidVisionProvider
+        }
+        let cleanVisionModel = visionProviderModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanVisionBaseURL = visionProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if !cleanVisionBaseURL.isEmpty {
+            guard let url = URL(string: cleanVisionBaseURL),
+                let scheme = url.scheme?.lowercased(),
+                ["http", "https"].contains(scheme),
+                url.host != nil
+            else {
+                throw ProxySettingsError.invalidVisionProviderBaseURL
+            }
+        }
         guard !haikuTarget.isEmpty else { throw ProxySettingsError.emptyField("Haiku 目标模型") }
         guard !otherTarget.isEmpty else { throw ProxySettingsError.emptyField("非 Haiku 目标模型") }
 
@@ -225,6 +247,9 @@ final class ProxySettingsStore: ObservableObject {
             anthropicBaseURL: cleanBaseURL,
             haikuTargetModel: haikuTarget,
             nonHaikuTargetModel: otherTarget,
+            visionProvider: cleanVisionProvider,
+            visionProviderModel: cleanVisionModel,
+            visionProviderBaseURL: cleanVisionBaseURL,
             advertisedModels: models
         )
     }
@@ -241,6 +266,9 @@ final class ProxySettingsStore: ObservableObject {
             anthropicBaseURL: decoded.anthropicBaseURL.isEmpty ? ProxyDiskSettings.defaults.anthropicBaseURL : decoded.anthropicBaseURL,
             haikuTargetModel: decoded.haikuTargetModel.isEmpty ? ProxyDiskSettings.defaults.haikuTargetModel : decoded.haikuTargetModel,
             nonHaikuTargetModel: decoded.nonHaikuTargetModel.isEmpty ? ProxyDiskSettings.defaults.nonHaikuTargetModel : decoded.nonHaikuTargetModel,
+            visionProvider: decoded.visionProvider,
+            visionProviderModel: decoded.visionProviderModel.trimmingCharacters(in: .whitespacesAndNewlines),
+            visionProviderBaseURL: decoded.visionProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines),
             advertisedModels: decoded.advertisedModels.isEmpty ? ProxyDiskSettings.defaultAdvertisedModels : decoded.advertisedModels
         )
     }
@@ -326,5 +354,26 @@ final class ProxySettingsStore: ObservableObject {
             .replacingOccurrences(of: "$", with: "\\$")
             .replacingOccurrences(of: "`", with: "\\`")
             .replacingOccurrences(of: "\n", with: "")
+    }
+
+    private static func serializedSecrets(_ values: [String: String]) -> String {
+        let preferredOrder = [
+            "DEEPSEEK_API_KEY",
+            "VISION_PROVIDER_API_KEY",
+            "LOCAL_GATEWAY_KEY",
+        ]
+        var lines = ["# Claude DeepSeek Gateway secrets."]
+        var emitted = Set<String>()
+        for key in preferredOrder {
+            guard let value = values[key] else { continue }
+            lines.append("export \(key)=\"\(shellDoubleQuoted(value))\"")
+            emitted.insert(key)
+        }
+        for key in values.keys.sorted() where !emitted.contains(key) {
+            guard let value = values[key] else { continue }
+            lines.append("export \(key)=\"\(shellDoubleQuoted(value))\"")
+        }
+        lines.append("")
+        return lines.joined(separator: "\n")
     }
 }

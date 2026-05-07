@@ -47,6 +47,23 @@ enum BundledRuntimeInstaller {
         binDirURL.appendingPathComponent("claude-deepseek-gateway-start.sh")
     }
 
+    static func runtimeLooksInstalled() -> Bool {
+        let fm = FileManager.default
+        let requiredFiles = [
+            startScriptURL.path,
+            binDirURL.appendingPathComponent("claude-deepseek-gateway-proxy.sh").path,
+            binDirURL.appendingPathComponent("claude-deepseek-gateway-doctor.sh").path,
+            configDirURL.appendingPathComponent("deepseek_anthropic_alias_proxy").path,
+            settingsURL.path,
+            secretsURL.path,
+        ]
+        return requiredFiles.allSatisfy { fm.fileExists(atPath: $0) }
+            && fm.isExecutableFile(atPath: startScriptURL.path)
+            && fm.isExecutableFile(atPath: binDirURL.appendingPathComponent("claude-deepseek-gateway-proxy.sh").path)
+            && fm.isExecutableFile(atPath: binDirURL.appendingPathComponent("claude-deepseek-gateway-doctor.sh").path)
+            && fm.isExecutableFile(atPath: configDirURL.appendingPathComponent("deepseek_anthropic_alias_proxy").path)
+    }
+
     static func installOrRepair() throws -> RuntimeInstallReport {
         let fm = FileManager.default
         var report = RuntimeInstallReport()
@@ -174,6 +191,7 @@ enum BundledRuntimeInstaller {
             let contents = """
             # Claude DeepSeek Gateway secrets.
             export DEEPSEEK_API_KEY=""
+            export VISION_PROVIDER_API_KEY=""
             export LOCAL_GATEWAY_KEY="\(generateLocalGatewayKey())"
 
             """
@@ -187,6 +205,10 @@ enum BundledRuntimeInstaller {
         var changed = false
         if !text.contains("DEEPSEEK_API_KEY=") {
             text += "\nexport DEEPSEEK_API_KEY=\"\"\n"
+            changed = true
+        }
+        if !text.contains("VISION_PROVIDER_API_KEY=") {
+            text += "\nexport VISION_PROVIDER_API_KEY=\"\"\n"
             changed = true
         }
         if !text.contains("LOCAL_GATEWAY_KEY=") {

@@ -96,6 +96,11 @@ if [[ -z "${DEEPSEEK_API_KEY:-}" || "$DEEPSEEK_API_KEY" == "replace_me" ]]; then
 else
   info "DEEPSEEK_API_KEY 已非占位符。"
 fi
+if [[ -z "${VISION_PROVIDER_API_KEY:-}" ]]; then
+  warn "VISION_PROVIDER_API_KEY 未设置；gateway 文本请求不受影响，vision-provider MCP 可能需要额外配置。"
+else
+  info "Vision Provider API Key 已设置（供 gateway-backed vision-provider MCP 使用）。"
+fi
 
 if [[ -z "${LOCAL_GATEWAY_KEY:-}" ]]; then
   warn "LOCAL_GATEWAY_KEY 为空，Claude Desktop 将无法通过本地代理鉴权。"
@@ -107,6 +112,9 @@ CFG_HOST="$(read_setting host 127.0.0.1)"
 CFG_PORT="$(read_setting port 4000)"
 HAIKU_TARGET="$(read_setting haikuTargetModel deepseek-v4-flash)"
 OTHER_TARGET="$(read_setting nonHaikuTargetModel 'deepseek-v4-pro[1m]')"
+VISION_PROVIDER="$(read_setting visionProvider auto)"
+VISION_PROVIDER_MODEL="$(read_setting visionProviderModel '')"
+VISION_PROVIDER_BASE_URL="$(read_setting visionProviderBaseURL '')"
 MODELS_JSON="$(read_models_json)"
 
 if command -v lsof &>/dev/null; then
@@ -160,6 +168,17 @@ else
   warn "POST /v1/messages/count_tokens -> HTTP ${tc}"
 fi
 
+vc=$(curl -sS -o /tmp/claude-deepseek-gateway-vision.json -w '%{http_code}' \
+  -H "Authorization: Bearer ${LOCAL_GATEWAY_KEY}" \
+  -H "content-type: application/json" \
+  --data '{"prompt":"doctor route probe"}' \
+  "http://127.0.0.1:${TEST_PORT}/v1/vision/describe" 2>/dev/null || echo "0")
+if [[ "$vc" == "400" ]]; then
+  info "POST /v1/vision/describe -> HTTP ${vc}（路由已加载，未真实调用 provider）"
+else
+  warn "POST /v1/vision/describe -> HTTP ${vc}"
+fi
+
 echo ""
 info "Claude 3P 配置："
 echo "  inferenceGatewayBaseUrl: http://${CFG_HOST}:${CFG_PORT}"
@@ -201,7 +220,31 @@ if [[ -f "${HOME}/.claude/settings.json" ]]; then
 else
   warn "未发现 ~/.claude/settings.json（app 保存/同步时会自动创建 Claude Code 配置）。"
 fi
+
 echo ""
-info "当前代理只做模型名改写，其余 Anthropic Messages 请求体由 DeepSeek 官方 /anthropic 端点处理:"
+info "Claude MCP："
+VISION_MCP="${HOME}/.claude/mcp/vision-provider"
+if [[ -L "$VISION_MCP" ]]; then
+  echo "  vision-provider MCP -> $(readlink "$VISION_MCP")"
+  if [[ -f "${VISION_MCP}/server.py" ]]; then
+    info "vision-provider MCP Server 已通过软链接安装。"
+  else
+    warn "vision-provider MCP Server 软链接目标不存在（app 保存/同步时会修复）。"
+  fi
+elif [[ -e "$VISION_MCP" ]]; then
+  warn "vision-provider MCP 已存在但不是软链接（app 保存/同步时会备份并替换）。"
+else
+  warn "未发现 vision-provider MCP Server（app 保存/同步时会自动软链接）。"
+fi
+echo ""
+info "当前代理改写模型名，并把图片保存成本地路径供 MCP 主动识别:"
 echo "  任意包含 haiku 的模型 -> ${HAIKU_TARGET}"
 echo "  其他所有模型           -> ${OTHER_TARGET}"
+if [[ -n "$VISION_PROVIDER_MODEL" || "$VISION_PROVIDER" != "auto" ]]; then
+  info "vision-provider MCP 默认配置:"
+  echo "  Vision Provider        -> ${VISION_PROVIDER}"
+  echo "  Vision Model           -> ${VISION_PROVIDER_MODEL:-未设置}"
+  echo "  Vision Base URL        -> ${VISION_PROVIDER_BASE_URL:-默认}"
+else
+  warn "Vision Provider 未配置；vision-provider MCP 会按环境变量自动选择 provider。"
+fi

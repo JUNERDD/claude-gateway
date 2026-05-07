@@ -9,17 +9,22 @@ let package = Package(
         .executable(name: "DeepSeekAliasProxy", targets: ["DeepSeekAliasProxy"]),
     ],
     targets: [
+        .target(
+            name: "DeepSeekAliasProxyCore",
+            path: "Sources/DeepSeekAliasProxyCore"
+        ),
         .executableTarget(
             name: "ClaudeDeepSeekGateway",
             path: "Sources/ClaudeDeepSeekGateway"
         ),
         .executableTarget(
             name: "DeepSeekAliasProxy",
+            dependencies: ["DeepSeekAliasProxyCore"],
             path: "Sources/DeepSeekAliasProxy"
         ),
         .testTarget(
             name: "ClaudeDeepSeekGatewayTests",
-            dependencies: ["ClaudeDeepSeekGateway"],
+            dependencies: ["ClaudeDeepSeekGateway", "DeepSeekAliasProxyCore"],
             path: "Tests/ClaudeDeepSeekGatewayTests"
         ),
     ]

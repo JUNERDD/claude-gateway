@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import DeepSeekAliasProxyCore
 
 struct HTTPRequest {
     var method: String
@@ -45,6 +46,8 @@ final class HTTPConnection {
             switch (request.method, request.urlPath) {
             case ("GET", "/v1/models"):
                 writeModels(request)
+            case ("POST", "/v1/vision/describe"):
+                writeVisionDescribe(request)
             case ("POST", "/v1/messages/count_tokens"):
                 writeTokenEstimate(request)
             case ("POST", "/v1/messages"):
@@ -100,18 +103,114 @@ final class HTTPConnection {
 
     private func writeTokenEstimate(_ request: HTTPRequest) {
         let payload = (try? JSONSerialization.jsonObject(with: request.body) as? [String: Any]) ?? [:]
+        let sanitizedPayload = AnthropicPayloadSanitizer.sanitizedForTokenEstimate(payload) as? [String: Any] ?? payload
+        let imageTokens = AnthropicPayloadSanitizer.imageBlockCount(in: payload) * AnthropicPayloadSanitizer.estimatedImageTokens
         let relevant: [String: Any?] = [
-            "system": payload["system"],
-            "messages": payload["messages"],
-            "tools": payload["tools"],
-            "thinking": payload["thinking"],
-            "tool_choice": payload["tool_choice"],
+            "system": sanitizedPayload["system"],
+            "messages": sanitizedPayload["messages"],
+            "tools": sanitizedPayload["tools"],
+            "thinking": sanitizedPayload["thinking"],
+            "tool_choice": sanitizedPayload["tool_choice"],
         ]
         let data = (try? JSONSerialization.data(withJSONObject: relevant.compactMapValues { $0 })) ?? Data()
-        let tokens = max(1, Int(ceil(Double(data.count) / 3.0)))
+        let tokens = max(1, Int(ceil(Double(data.count) / 3.0)) + imageTokens)
         writeLoggedJSON(status: 200, payload: ["input_tokens": tokens], request: request, responseFields: [
             "inputTokens": tokens,
         ])
+    }
+
+    private func writeVisionDescribe(_ request: HTTPRequest) {
+        let requestID = UUID().uuidString
+        let startedAt = Date()
+        logGatewayEvent([
+            "type": "vision_gateway_request",
+            "requestID": requestID,
+            "method": request.method,
+            "path": request.path,
+            "bodyBytes": request.body.count,
+        ])
+
+        guard let payload = try? JSONSerialization.jsonObject(with: request.body) as? [String: Any] else {
+            writeVisionDescribeResponse(
+                requestID: requestID,
+                status: 400,
+                startedAt: startedAt,
+                payload: [
+                    "error": [
+                        "type": "invalid_request_error",
+                        "message": "Invalid JSON",
+                    ],
+                ],
+                logFields: ["error": "Invalid JSON"]
+            )
+            return
+        }
+
+        guard let image = firstString(in: payload, keys: ["image", "imagePath", "image_path"]) else {
+            writeVisionDescribeResponse(
+                requestID: requestID,
+                status: 400,
+                startedAt: startedAt,
+                payload: [
+                    "error": [
+                        "type": "invalid_request_error",
+                        "message": "Vision request image is missing.",
+                    ],
+                ],
+                logFields: ["error": "Vision request image is missing."]
+            )
+            return
+        }
+
+        let settings = SettingsLoader.shared.load()
+        let describeRequest = VisionProviderDescribeRequest(
+            image: image,
+            mimeType: firstString(in: payload, keys: ["mimeType", "mime_type"]),
+            prompt: firstString(in: payload, keys: ["prompt"]) ?? defaultVisionPrompt,
+            provider: firstString(in: payload, keys: ["provider"]),
+            model: firstString(in: payload, keys: ["model"]),
+            baseURL: firstString(in: payload, keys: ["baseURL", "base_url"])
+        )
+        let configuration = VisionProviderRuntimeConfiguration(
+            provider: settings.visionProvider,
+            model: settings.visionProviderModel,
+            baseURL: settings.visionProviderBaseURL,
+            environment: ProcessInfo.processInfo.environment
+        )
+
+        do {
+            let result = try VisionProviderGatewayService().describe(describeRequest, configuration: configuration)
+            writeVisionDescribeResponse(
+                requestID: requestID,
+                status: 200,
+                startedAt: startedAt,
+                payload: result.jsonObject,
+                logFields: [
+                    "provider": result.provider,
+                    "model": result.model,
+                    "providerStatus": result.statusCode ?? NSNull(),
+                    "imageBytes": result.imageByteCount,
+                    "responseBodyBytes": result.responseBodyBytes,
+                ]
+            )
+        } catch {
+            writeVisionDescribeResponse(
+                requestID: requestID,
+                status: 502,
+                startedAt: startedAt,
+                payload: [
+                    "error": [
+                        "type": "vision_provider_error",
+                        "message": error.localizedDescription,
+                    ],
+                ],
+                logFields: [
+                    "error": error.localizedDescription,
+                    "provider": firstString(in: payload, keys: ["provider"]) ?? settings.visionProvider,
+                    "model": firstString(in: payload, keys: ["model"]) ?? settings.visionProviderModel,
+                ]
+            )
+        }
     }
 
     private func forwardMessages(_ request: HTTPRequest) {
@@ -128,6 +227,16 @@ final class HTTPConnection {
         let settings = SettingsLoader.shared.load()
         let requestID = UUID().uuidString
         let originalModel = payload["model"] as? String
+
+        let attachmentBridgeResult = AnthropicImageAttachmentBridge().bridge(payload: payload, requestID: requestID)
+        payload = attachmentBridgeResult.payload
+        if attachmentBridgeResult.report.didBridgeImages {
+            var logObject = attachmentBridgeResult.report.logObject
+            logObject["type"] = "image_attachment_bridge"
+            logObject["requestID"] = requestID
+            logGatewayEvent(logObject)
+        }
+
         var targetModel = originalModel
         if let original = payload["model"] as? String {
             let target = original.localizedCaseInsensitiveContains("haiku")
@@ -183,7 +292,7 @@ final class HTTPConnection {
             "targetModel": targetModel ?? NSNull(),
             "bodyBytes": body.count,
             "stream": payload["stream"] ?? false,
-            "payload": loggableJSON(payload),
+            "payload": loggableJSON(AnthropicPayloadSanitizer.sanitizedForLogging(payload)),
             "headers": [
                 "accept": request.headers["accept"] ?? "application/json",
                 "anthropic-version": request.headers["anthropic-version"] ?? "2023-06-01",
@@ -195,6 +304,44 @@ final class HTTPConnection {
 
         let forwarder = UpstreamForwarder(fd: fd, requestID: requestID)
         forwarder.forward(upstream)
+    }
+
+    private var defaultVisionPrompt: String {
+        "Describe this image for a downstream agent. Include visible text exactly, important layout/state, diagrams, tables, charts, code, errors, and uncertainty."
+    }
+
+    private func firstString(in payload: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            guard let value = payload[key] as? String else { continue }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
+    }
+
+    private func writeVisionDescribeResponse(
+        requestID: String,
+        status: Int,
+        startedAt: Date,
+        payload: Any,
+        logFields: [String: Any]
+    ) {
+        let body = (try? JSONSerialization.data(withJSONObject: payload)) ?? Data("{}".utf8)
+        writeRawResponse(status: status, headers: ["content-type": "application/json"], body: body)
+
+        var event: [String: Any] = [
+            "type": "vision_gateway_response",
+            "requestID": requestID,
+            "status": status,
+            "durationMs": Int(Date().timeIntervalSince(startedAt) * 1000),
+            "responseBodyBytes": body.count,
+        ]
+        for (key, value) in logFields {
+            event[key] = value
+        }
+        logGatewayEvent(event)
     }
 
     private func readRequest() throws -> HTTPRequest {

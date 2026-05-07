@@ -29,6 +29,9 @@ cp -R "$ROOT/Resources/Runtime" "$APP/Contents/Resources/Runtime"
 cp "$PROXY_BIN" "$APP/Contents/Resources/Runtime/deepseek_anthropic_alias_proxy"
 chmod +x "$APP/Contents/Resources/Runtime"/claude-deepseek-gateway-*.sh
 chmod +x "$APP/Contents/Resources/Runtime/deepseek_anthropic_alias_proxy"
+rm -rf "$APP/Contents/Resources/ClaudeMCPServers"
+cp -R "$ROOT/Resources/ClaudeMCPServers" "$APP/Contents/Resources/ClaudeMCPServers"
+chmod +x "$APP/Contents/Resources/ClaudeMCPServers/vision-provider/server.py"
 
 if command -v codesign &>/dev/null; then
   codesign --force --deep --sign - "$APP" 2>/dev/null || true

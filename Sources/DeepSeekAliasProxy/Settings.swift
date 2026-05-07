@@ -7,6 +7,9 @@ struct ProxySettings {
     var anthropicBaseURL: String = "https://api.deepseek.com/anthropic"
     var haikuTargetModel: String = "deepseek-v4-flash"
     var nonHaikuTargetModel: String = "deepseek-v4-pro[1m]"
+    var visionProvider: String = "auto"
+    var visionProviderModel: String = ""
+    var visionProviderBaseURL: String = ""
     var advertisedModels: [String] = [
         "claude-opus-4-7",
         "claude-sonnet-4-6",
@@ -54,6 +57,15 @@ final class SettingsLoader {
             if let value = cleanString(object["nonHaikuTargetModel"]) {
                 settings.nonHaikuTargetModel = value
             }
+            if let value = cleanString(object["visionProvider"]) {
+                settings.visionProvider = value
+            }
+            if let value = cleanString(object["visionProviderModel"]) {
+                settings.visionProviderModel = value
+            }
+            if let value = cleanString(object["visionProviderBaseURL"]) {
+                settings.visionProviderBaseURL = value
+            }
             if let models = object["advertisedModels"] as? [String] {
                 let cleaned = uniqueNonEmpty(models)
                 if !cleaned.isEmpty {
@@ -66,6 +78,17 @@ final class SettingsLoader {
             !override.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         {
             settings.anthropicBaseURL = override.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let override = ProcessInfo.processInfo.environment["VISION_PROVIDER"],
+            !override.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+            settings.visionProvider = override.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let override = ProcessInfo.processInfo.environment["VISION_PROVIDER_MODEL"] {
+            settings.visionProviderModel = override.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let override = ProcessInfo.processInfo.environment["VISION_PROVIDER_BASE_URL"] {
+            settings.visionProviderBaseURL = override.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
         cached = settings

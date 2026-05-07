@@ -1,92 +1,134 @@
 # Claude DeepSeek Gateway
 
-Claude DeepSeek Gateway is a macOS utility that lets Claude Desktop and Claude Code use DeepSeek's Anthropic-compatible API through a local gateway.
+Claude DeepSeek Gateway is a macOS app that lets Claude Desktop and Claude Code talk to DeepSeek through a local Anthropic-compatible gateway.
 
-It is intentionally small: the gateway only rewrites the top-level `model` field, then forwards the Anthropic Messages request body to DeepSeek unchanged.
+Install the app, paste your DeepSeek API key, save once, and Claude can use the local gateway models without manual config editing.
 
-## What It Does
+## What You Get
 
-- Presents official Claude model names to Claude Desktop:
+- A native macOS manager for starting, stopping, and monitoring the local gateway.
+- Automatic Claude Desktop and Claude Code configuration sync.
+- Claude-visible model names:
   - `claude-opus-4-7`
   - `claude-sonnet-4-6`
   - `claude-haiku-4-5`
-- Rewrites model names before forwarding to DeepSeek:
-  - any model containing `haiku` -> `deepseek-v4-flash`
-  - every other model -> `deepseek-v4-pro[1m]`
-- Forwards requests to `https://api.deepseek.com/anthropic`.
-- Provides local `/v1/models`, `/health/liveliness`, and `/v1/messages/count_tokens` endpoints for Claude client compatibility.
-- Syncs Claude Desktop's config library and Claude Code's `~/.claude/settings.json`.
-- Shows a structured activity timeline with expandable DeepSeek request parameters.
-- Bundles a native Swift gateway binary. It does not depend on LiteLLM, Python, or uv at runtime.
-- Runs the gateway through a per-user macOS LaunchAgent, so the model list remains available after the manager window is closed.
+- DeepSeek routing behind the scenes:
+  - Haiku requests route to `deepseek-v4-flash`
+  - Other requests route to `deepseek-v4-pro[1m]`
+- A bundled `vision-provider` MCP server so Claude agents can inspect saved image attachments through your configured vision provider.
+- Local logs, request history, issue views, and runtime diagnostics.
+- A per-user macOS LaunchAgent so the gateway keeps serving Claude after the manager window is closed.
 
 ## Requirements
 
-- macOS 14 or later
+- macOS 14.4 or later
 - A DeepSeek API key
+- Optional: a vision provider API key if you want Claude agents to inspect image attachments
 
-Xcode command line tools are only needed when building from source.
+You do not need LiteLLM, uv, or a separate gateway service.
 
-## Install From Release
+## Install
 
 1. Download the latest `ClaudeDeepSeekGateway-*.dmg` from GitHub Releases.
 2. Open the DMG.
-3. Drag `Claude DeepSeek Gateway.app` to `Applications`.
+3. Drag `Claude DeepSeek Gateway.app` into Applications.
 4. Open the app.
 
-The app installs its own local runtime on first launch. You do not need LiteLLM, Python, or uv.
+macOS may ask you to confirm opening the app because it is distributed outside the App Store.
 
-The release DMG is the production install path. The packaging script builds the app into a temporary staging bundle and does not pre-install it into `~/Applications`.
-
-## First Run
+## First Setup
 
 1. Open `Claude DeepSeek Gateway.app`.
 2. Open Settings.
 3. Paste your DeepSeek API key.
-4. Save.
-5. Restart Claude Desktop if it was already open. Start a new Claude Code session if you use Claude Code.
+4. Keep the local address as `127.0.0.1` and the port as `4000` unless you know you need a different port.
+5. Click `Save, Sync, and Start`.
+6. Restart Claude Desktop if it was already open. Start a new Claude Code session if you use Claude Code.
 
-Saving settings installs/updates the local LaunchAgent, starts the gateway, refreshes Claude's gateway model cache, syncs Claude-3p's config library with the correct URL, bearer key, and visible model list, and merges Claude Code's `~/.claude/settings.json` with the local gateway base URL and bearer token. The Settings window also provides a `同步 Claude 客户端配置` button for an explicit repair flow after fully quitting Claude Desktop and enabling Developer Mode.
+Saving settings installs or updates the local runtime, starts the LaunchAgent, refreshes Claude model discovery, syncs Claude Desktop, and updates Claude Code settings.
 
-The config sync discovers config library files from both `_meta.json` and the JSON files inside `configLibrary`. If Claude-3p has no config library entry yet, the app creates a default entry and applies the gateway settings there.
+## Vision Setup
 
-The Settings window still shows a Claude Desktop config snippet as a fallback for manual inspection or nonstandard Claude Desktop setups.
+Vision is optional. The gateway does not automatically send every chat message to a vision model. When Claude receives an image attachment, the gateway saves the image locally and gives Claude an MCP tool path it can inspect when needed.
 
-The gateway app itself is installed at:
+To enable image inspection:
+
+1. Open Settings.
+2. Choose a Vision Provider.
+3. Paste the provider API key in Credentials.
+4. Set the vision model and base URL.
+5. Click `Save, Sync, and Start`.
+
+Common DashScope/Qwen values:
 
 ```text
-/Applications/Claude DeepSeek Gateway.app
+Vision Provider: dashscope
+Vision Model: qwen3-vl-flash
+Vision Base URL: https://dashscope.aliyuncs.com/compatible-mode/v1
 ```
 
-## Build From Source
+Use the DashScope endpoint that matches the region of your API key.
+
+## Daily Use
+
+The main window shows:
+
+- `Overview`: gateway health, endpoint, request rate, and recent requests.
+- `Requests`: recent traffic forwarded through the gateway.
+- `Issues`: warnings, failed requests, and configuration problems.
+- `Logs`: structured runtime events.
+- `Configuration`: quick access to the full Settings window.
+
+Most users only need Settings when changing API keys, models, provider URLs, or Claude sync state.
+
+## Settings
+
+Important settings:
+
+- `DeepSeek API Key`: used by the gateway when forwarding text requests to DeepSeek.
+- `Local Gateway Key`: a local bearer token used between Claude and the gateway.
+- `DeepSeek Endpoint`: defaults to `https://api.deepseek.com/anthropic`.
+- `Advertised Models`: the model names Claude sees.
+- `Haiku Target` and `Default Target`: the DeepSeek model names used after routing.
+- `Vision Provider`, `Vision Model`, and `Vision Base URL`: optional image inspection provider settings.
+
+The local gateway key is separate from your provider API keys. Claude clients only receive the local gateway key.
+
+## Privacy And Security
+
+- The gateway binds to `127.0.0.1` by default.
+- DeepSeek and vision provider API keys are stored locally in `~/.config/claude-deepseek-gateway/secrets.env`.
+- Request forwarding rewrites the top-level `model` field for DeepSeek routing.
+- Image attachments are cached locally under `~/Library/Caches/ClaudeDeepSeekGateway/attachments`.
+- Structured logs avoid storing large image base64 payloads.
+
+## Troubleshooting
+
+If Claude cannot see models or cannot connect:
+
+1. Open the app and check that the gateway status is running.
+2. Click `Save, Sync, and Start` again from Settings.
+3. Fully quit and reopen Claude Desktop.
+4. Make sure no other process is using the selected port.
+5. Check the `Issues` and `Logs` tabs.
+6. Run the local doctor:
 
 ```bash
-git clone https://github.com/JUNERDD/claude-deepseek-gateway.git
-cd claude-deepseek-gateway
-./build-and-install-app.sh
+~/bin/claude-deepseek-gateway-doctor.sh
 ```
 
-The source build installs the app to:
+The doctor checks runtime files, local auth, the health endpoint, model discovery, token counting, Claude Desktop sync, Claude Code settings, and the bundled MCP symlink.
+
+## Files The App Manages
+
+Configuration:
 
 ```text
-~/Applications/Claude DeepSeek Gateway.app
+~/.config/claude-deepseek-gateway/proxy_settings.json
+~/.config/claude-deepseek-gateway/secrets.env
 ```
 
-To build a DMG from source:
-
-```bash
-./scripts/package_dmg.sh
-```
-
-The DMG is written to:
-
-```text
-dist/ClaudeDeepSeekGateway-<version>.dmg
-```
-
-## Runtime Files
-
-On first run, the app installs its runtime files to:
+Runtime:
 
 ```text
 ~/bin/claude-deepseek-gateway-start.sh
@@ -95,157 +137,46 @@ On first run, the app installs its runtime files to:
 ~/.config/claude-deepseek-gateway/deepseek_anthropic_alias_proxy
 ```
 
-The per-user LaunchAgent is stored in:
-
-```text
-~/Library/LaunchAgents/local.zen.ClaudeDeepSeekGateway.proxy.plist
-```
-
-User configuration is stored in:
-
-```text
-~/.config/claude-deepseek-gateway/proxy_settings.json
-~/.config/claude-deepseek-gateway/secrets.env
-```
-
-Logs are stored in:
+Logs:
 
 ```text
 ~/Library/Application Support/ClaudeDeepSeekGateway/proxy.log
 ```
 
-The app log view reads this file and renders structured request events. DeepSeek request rows can be expanded to inspect the JSON body after model-name rewriting. Very large strings and arrays are bounded in the event log to keep the local log file usable.
-
-## Claude Desktop Configuration
-
-The app automatically updates Claude-3p config library entries when settings are saved or the gateway is started. It reads `_meta.json` for the active/known entries, scans the directory for internal JSON config files, and ignores `_meta`, temporary files, and backups. A typical gateway config looks like:
-
-```json
-{
-  "inferenceProvider": "gateway",
-  "inferenceGatewayBaseUrl": "http://127.0.0.1:4000",
-  "inferenceGatewayAuthScheme": "bearer",
-  "inferenceGatewayApiKey": "LOCAL_GATEWAY_KEY_FROM_SETTINGS",
-  "inferenceModels": [
-    "claude-opus-4-7",
-    "claude-sonnet-4-6",
-    "claude-haiku-4-5"
-  ]
-}
-```
-
-`LOCAL_GATEWAY_KEY` is a local bearer token generated by the app. It is separate from your DeepSeek API key and prevents other local processes from using the gateway without authorization.
-
-For a manual repair:
-
-1. Fully quit Claude Desktop.
-2. Enable Claude Developer Mode.
-3. Open this app's Settings.
-4. Click `同步 Claude Desktop 配置`.
-5. Restart Claude Desktop.
-
-The sync action saves the current gateway settings, backs up changed configLibrary JSON files, writes the gateway fields, refreshes the gateway model cache, and starts/restarts the LaunchAgent. The Settings window shows the exact files updated, created, matched, and backed up.
-
-If the app cannot find or create a usable Claude-3p config library entry, use the Settings window's config snippet as a manual fallback.
-
-## Claude Code Configuration
-
-When settings are saved or synchronized, the app creates or updates:
+LaunchAgent:
 
 ```text
-~/.claude/settings.json
+~/Library/LaunchAgents/local.zen.ClaudeDeepSeekGateway.proxy.plist
 ```
 
-It preserves unrelated settings, merges the `env` object, and writes:
-
-```json
-{
-  "env": {
-    "ANTHROPIC_BASE_URL": "http://127.0.0.1:4000",
-    "ANTHROPIC_AUTH_TOKEN": "LOCAL_GATEWAY_KEY_FROM_SETTINGS",
-    "API_TIMEOUT_MS": "3000000"
-  },
-  "model": "opus"
-}
-```
-
-`model` is only added when missing or empty. Existing Claude Code model preferences are preserved, except for known legacy aliases such as `opus[1m]`, which are normalized to Claude Code's current aliases.
-
-## Settings
-
-The app can configure:
-
-- local host and port
-- DeepSeek Anthropic endpoint
-- DeepSeek API key
-- local gateway key
-- Haiku target model
-- non-Haiku target model
-- model names advertised to Claude Desktop
-
-The default endpoint is:
+Claude MCP symlink:
 
 ```text
-https://api.deepseek.com/anthropic
+~/.claude/mcp/vision-provider
 ```
 
-## Doctor
+## Updating
 
-To verify the installed runtime:
+Download the newest DMG, replace the app in Applications, open it, and click `Save, Sync, and Start` once. Your existing keys and settings stay in the local configuration files.
+
+## Uninstall
+
+1. Quit the app.
+2. Remove `Claude DeepSeek Gateway.app` from Applications.
+3. Remove the LaunchAgent if it is still installed:
 
 ```bash
-~/bin/claude-deepseek-gateway-doctor.sh
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/local.zen.ClaudeDeepSeekGateway.proxy.plist
+rm -f ~/Library/LaunchAgents/local.zen.ClaudeDeepSeekGateway.proxy.plist
 ```
 
-The doctor checks:
-
-- runtime file installation
-- local authentication setup
-- local health endpoint
-- model discovery endpoint
-- token counting compatibility endpoint
-- Claude config library discovery
-- stale gateway model cache state
-- Claude Code gateway settings
-
-## Development
-
-Build both Swift executables:
+4. Optional: remove local configuration and logs:
 
 ```bash
-swift build
+rm -rf ~/.config/claude-deepseek-gateway
+rm -rf ~/Library/Application\ Support/ClaudeDeepSeekGateway
+rm -rf ~/Library/Caches/ClaudeDeepSeekGateway
+rm -f ~/bin/claude-deepseek-gateway-start.sh
+rm -f ~/bin/claude-deepseek-gateway-proxy.sh
+rm -f ~/bin/claude-deepseek-gateway-doctor.sh
 ```
-
-Build and install the macOS app:
-
-```bash
-./build-and-install-app.sh
-```
-
-Project layout:
-
-```text
-Sources/ClaudeDeepSeekGateway/     SwiftUI manager app
-Sources/DeepSeekAliasProxy/        native local gateway
-Resources/Runtime/                 bundled runtime scripts and defaults
-Resources/AppIcon.icns             app icon
-Resources/DMG/background.png       release DMG background artwork
-```
-
-## Security Notes
-
-- The gateway binds to `127.0.0.1` by default.
-- The DeepSeek API key is written only to `~/.config/claude-deepseek-gateway/secrets.env`.
-- The local gateway key is used only between Claude clients and the local gateway.
-- No request payload is rewritten except the top-level `model` field.
-
-## Troubleshooting
-
-If Claude Desktop cannot connect:
-
-1. Start the app and verify the status says running.
-2. Run `~/bin/claude-deepseek-gateway-doctor.sh`.
-3. Confirm the LaunchAgent is running: `launchctl print gui/$(id -u)/local.zen.ClaudeDeepSeekGateway.proxy`.
-4. Confirm Claude Desktop uses the same local gateway key shown in Settings.
-5. Confirm no other process is listening on the configured port.
-6. Check the log file in `~/Library/Application Support/ClaudeDeepSeekGateway/proxy.log`.

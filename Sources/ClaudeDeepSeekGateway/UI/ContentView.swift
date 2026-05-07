@@ -2,6 +2,12 @@ import AppKit
 import Charts
 import SwiftUI
 
+private enum MainWindowLayout {
+    static var toolbarOverlayCompensation: CGFloat {
+        ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26 ? 32 : 0
+    }
+}
+
 struct ContentView: View {
     @ObservedObject var settings: ProxySettingsStore
     @StateObject private var runner = ProxyController()
@@ -26,39 +32,38 @@ struct ContentView: View {
         } detail: {
             detailContent
                 .navigationTitle(selectedSection.title)
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    Color.clear.frame(height: MainWindowLayout.toolbarOverlayCompensation)
+                }
                 .toolbar {
                     ToolbarItemGroup(placement: .primaryAction) {
-                        Button {
+                        ToolbarIconButton(
+                            title: "Refresh",
+                            detail: "Reload settings, service status, and recent gateway metrics.",
+                            systemImage: "arrow.clockwise"
+                        ) {
                             reloadFromDisk()
-                        } label: {
-                            Label("Refresh", systemImage: "arrow.clockwise")
                         }
-                        .help("Reload settings, service status, and recent gateway metrics")
 
-                        Button {
+                        ToolbarIconButton(
+                            title: "Save, Sync, and Start",
+                            detail: "Save current settings, sync Claude configuration, and start or refresh the LaunchAgent.",
+                            systemImage: "arrow.triangle.2.circlepath"
+                        ) {
                             syncClaude()
-                        } label: {
-                            Label("Save and Sync", systemImage: "arrow.triangle.2.circlepath")
                         }
-                        .help("Save current settings, sync Claude configuration, and refresh the LaunchAgent")
 
-                        ControlGroup {
-                            Button {
-                                startGateway()
-                            } label: {
-                                Label("Start Gateway", systemImage: "play.fill")
-                            }
-                            .disabled(runner.isRunning)
-                            .keyboardShortcut("r", modifiers: .command)
-                            .help("Save current settings and start the local gateway")
-
-                            Button {
+                        ToolbarIconButton(
+                            title: gatewayPowerTitle,
+                            detail: gatewayPowerDetail,
+                            systemImage: runner.isRunning ? "stop.fill" : "play.fill",
+                            isDisabled: runner.isBusy
+                        ) {
+                            if runner.isRunning {
                                 stopGateway()
-                            } label: {
-                                Label("Stop Gateway", systemImage: "stop.fill")
+                            } else {
+                                startGateway()
                             }
-                            .disabled(!runner.isRunning)
-                            .help("Stop the local gateway LaunchAgent")
                         }
 
                         Menu {
@@ -78,8 +83,12 @@ struct ContentView: View {
                         } label: {
                             Label("More", systemImage: "ellipsis.circle")
                         }
+                        .help("More Actions\nClear logs or open settings.")
+                        .accessibilityLabel("More Actions")
+                        .accessibilityHint("Open additional gateway actions.")
                     }
                 }
+                .toolbarBackground(.hidden, for: .windowToolbar)
         }
         .frame(minWidth: 1120, minHeight: 760)
         .onAppear {
@@ -129,27 +138,16 @@ struct ContentView: View {
                 settings: settings,
                 runner: runner,
                 snapshot: dashboard.snapshot,
-                selectedRange: $selectedRange,
-                start: startGateway,
-                stop: stopGateway,
-                sync: syncClaude
+                selectedRange: $selectedRange
             )
         case .requests:
             RequestsPage(snapshot: dashboard.snapshot, selectedRange: $selectedRange)
         case .issues:
             IssuesPage(snapshot: dashboard.snapshot)
         case .logs:
-            LogsPage(runner: runner, clearLogs: clearLogs)
-        case .endpoint:
-            EndpointPage(settings: settings, save: syncClaude, reload: reloadFromDisk)
-        case .models:
-            ModelsPage(settings: settings, save: syncClaude)
-        case .credentials:
-            CredentialsPage(settings: settings, save: syncClaude)
-        case .claude:
-            ClaudePage(settings: settings, sync: syncClaude)
-        case .runtime:
-            RuntimePage(settings: settings)
+            LogsPage(runner: runner)
+        case .configuration:
+            ConfigurationPage(settings: settings)
         }
     }
 
@@ -158,19 +156,46 @@ struct ContentView: View {
 
         let message = settings.statusMessage.lowercased()
         if message.contains("deepseek api key") || message.contains("local gateway key") || message.contains("密钥") {
-            return .credentials
+            return .configuration
         }
         if message.contains("endpoint") || message.contains("url") || message.contains("端口") || message.contains("监听地址") {
-            return .endpoint
+            return .configuration
         }
         if message.contains("model") || message.contains("模型") {
-            return .models
+            return .configuration
         }
         return nil
     }
 
+    private var gatewayPowerTitle: String {
+        if runner.isStarting {
+            return "Starting Gateway"
+        }
+        if runner.isStopping {
+            return "Stopping Gateway"
+        }
+        return runner.isRunning ? "Stop Gateway" : "Start Gateway"
+    }
+
+    private var gatewayPowerHelp: String {
+        "\(gatewayPowerTitle)\n\(gatewayPowerDetail)"
+    }
+
+    private var gatewayPowerDetail: String {
+        if runner.isStarting {
+            return "The local gateway is starting."
+        }
+        if runner.isStopping {
+            return "The local gateway is stopping."
+        }
+        if runner.isRunning {
+            return "Stop the local gateway LaunchAgent."
+        }
+        return "Start the local gateway using saved settings."
+    }
+
     private func startGateway() {
-        settings.save()
+        runner.start()
         runner.refreshStatus()
         dashboard.reload(from: runner.logStore, range: selectedRange)
     }
@@ -204,16 +229,12 @@ private enum GatewaySection: String, CaseIterable, Identifiable {
     case requests
     case issues
     case logs
-    case endpoint
-    case models
-    case credentials
-    case claude
-    case runtime
+    case configuration
 
     var id: String { rawValue }
 
     static let monitor: [GatewaySection] = [.overview, .requests, .issues, .logs]
-    static let configuration: [GatewaySection] = [.endpoint, .models, .credentials, .claude, .runtime]
+    static let configurationSections: [GatewaySection] = [.configuration]
 
     var title: String {
         switch self {
@@ -225,16 +246,8 @@ private enum GatewaySection: String, CaseIterable, Identifiable {
             return "Issues"
         case .logs:
             return "Logs"
-        case .endpoint:
-            return "Endpoint"
-        case .models:
-            return "Model Mapping"
-        case .credentials:
-            return "Credentials"
-        case .claude:
-            return "Claude Integration"
-        case .runtime:
-            return "Runtime"
+        case .configuration:
+            return "Configuration"
         }
     }
 
@@ -248,16 +261,8 @@ private enum GatewaySection: String, CaseIterable, Identifiable {
             return "exclamationmark.triangle"
         case .logs:
             return "doc.text.magnifyingglass"
-        case .endpoint:
-            return "network"
-        case .models:
-            return "rectangle.stack"
-        case .credentials:
-            return "key"
-        case .claude:
-            return "arrow.triangle.2.circlepath"
-        case .runtime:
-            return "wrench.and.screwdriver"
+        case .configuration:
+            return "slider.horizontal.3"
         }
     }
 }
@@ -278,13 +283,14 @@ private struct SidebarView: View {
             }
 
             Section("Configuration") {
-                ForEach(GatewaySection.configuration) { section in
+                ForEach(GatewaySection.configurationSections) { section in
                     Label(section.title, systemImage: section.systemImage)
                         .tag(section)
                 }
             }
         }
         .listStyle(.sidebar)
+        .contentMargins(.top, 8, for: .scrollContent)
         .scrollContentBackground(.hidden)
         .background(Color.clear)
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -361,14 +367,66 @@ private struct SidebarFooterMetric: View {
     }
 }
 
+private struct ToolbarIconButton: View {
+    var title: String
+    var detail: String
+    var systemImage: String
+    var isDisabled = false
+    var action: () -> Void
+
+    @State private var isTooltipVisible = false
+    @State private var hoverTask: Task<Void, Never>?
+
+    var body: some View {
+        Button {
+            isTooltipVisible = false
+            action()
+        } label: {
+            Label(title, systemImage: systemImage)
+                .labelStyle(.iconOnly)
+        }
+        .disabled(isDisabled)
+        .help("\(title)\n\(detail)")
+        .accessibilityLabel(title)
+        .accessibilityHint(detail)
+        .onHover(perform: handleHover)
+        .onDisappear {
+            hoverTask?.cancel()
+            hoverTask = nil
+        }
+        .popover(isPresented: $isTooltipVisible, arrowEdge: .top) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.headline)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(10)
+            .frame(width: 240, alignment: .leading)
+        }
+    }
+
+    private func handleHover(_ isHovering: Bool) {
+        hoverTask?.cancel()
+        if isHovering {
+            hoverTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 450_000_000)
+                guard !Task.isCancelled else { return }
+                isTooltipVisible = true
+            }
+        } else {
+            isTooltipVisible = false
+        }
+    }
+}
+
 private struct OverviewPage: View {
     @ObservedObject var settings: ProxySettingsStore
     @ObservedObject var runner: ProxyController
     var snapshot: GatewayDashboardSnapshot
     @Binding var selectedRange: GatewayDashboardRange
-    var start: () -> Void
-    var stop: () -> Void
-    var sync: () -> Void
 
     var body: some View {
         NativePage {
@@ -382,10 +440,7 @@ private struct OverviewPage: View {
             StatusSummaryGroup(
                 settings: settings,
                 runner: runner,
-                snapshot: snapshot,
-                start: start,
-                stop: stop,
-                sync: sync
+                snapshot: snapshot
             )
 
             MetricsGrid(snapshot: snapshot)
@@ -407,9 +462,6 @@ private struct StatusSummaryGroup: View {
     @ObservedObject var settings: ProxySettingsStore
     @ObservedObject var runner: ProxyController
     var snapshot: GatewayDashboardSnapshot
-    var start: () -> Void
-    var stop: () -> Void
-    var sync: () -> Void
 
     var body: some View {
         CardSurface {
@@ -459,28 +511,13 @@ private struct StatusSummaryGroup: View {
                         tint: snapshot.issueCount == 0 ? .green : .orange
                     )
 
-                    HStack(spacing: 8) {
-                        Button {
-                            start()
-                        } label: {
-                            Label("Start", systemImage: "play.fill")
-                        }
-                        .disabled(runner.isRunning)
-
-                        Button {
-                            stop()
-                        } label: {
-                            Label("Stop", systemImage: "stop.fill")
-                        }
-                        .disabled(!runner.isRunning)
-
-                        Button {
-                            sync()
-                        } label: {
-                            Label("Sync", systemImage: "arrow.triangle.2.circlepath")
-                        }
-                    }
-                    .controlSize(.regular)
+                    SummaryCell(
+                        title: "Log Tail",
+                        value: "\(snapshot.requestRows.count) loaded",
+                        detail: "Recent traffic is available in Requests and Logs",
+                        systemImage: "doc.text.magnifyingglass",
+                        tint: .secondary
+                    )
                 }
             }
         }
@@ -670,20 +707,13 @@ private struct IssuesPage: View {
 
 private struct LogsPage: View {
     @ObservedObject var runner: ProxyController
-    var clearLogs: () -> Void
 
     var body: some View {
         NativePage {
             PageHeader(
                 title: "Logs",
                 subtitle: "Structured and plain proxy events from the persistent log file."
-            ) {
-                Button {
-                    clearLogs()
-                } label: {
-                    Label("Clear", systemImage: "trash")
-                }
-            }
+            )
 
             LogTimelineView(runner: runner)
                 .frame(minHeight: 560)
@@ -691,288 +721,81 @@ private struct LogsPage: View {
     }
 }
 
-private struct EndpointPage: View {
+private struct ConfigurationPage: View {
     @ObservedObject var settings: ProxySettingsStore
-    var save: () -> Void
-    var reload: () -> Void
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         NativePage {
             PageHeader(
-                title: "Endpoint",
-                subtitle: "Configure the local listener and the upstream Anthropic-compatible DeepSeek endpoint."
-            )
-
-            SettingsStack {
-                SettingsSectionCard(title: "Local Gateway") {
-                    SettingsRow("Host") {
-                        TextField("127.0.0.1", text: $settings.host)
-                            .textFieldStyle(.roundedBorder)
-                    }
-                    SettingsDivider()
-                    SettingsRow("Port") {
-                        TextField("4000", text: $settings.portText)
-                            .textFieldStyle(.roundedBorder)
-                    }
-                    SettingsDivider()
-                    SettingsRow("Config File") {
-                        SelectablePath(settings.configPathForDisplay)
-                    }
-                }
-
-                SettingsSectionCard(title: "Upstream") {
-                    SettingsRow("Anthropic Base URL") {
-                        TextField("https://api.deepseek.com/anthropic", text: $settings.anthropicBaseURL)
-                            .textFieldStyle(.roundedBorder)
-                    }
-                }
-
-                SettingsActionBar {
-                    Button {
-                        reload()
-                    } label: {
-                        Label("Reload", systemImage: "arrow.clockwise")
-                    }
-
-                    Spacer()
-
-                    Button {
-                        save()
-                    } label: {
-                        Label("Save and Sync", systemImage: "square.and.arrow.down")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                }
-            }
-        }
-    }
-}
-
-private struct ModelsPage: View {
-    @ObservedObject var settings: ProxySettingsStore
-    var save: () -> Void
-
-    var body: some View {
-        NativePage {
-            PageHeader(
-                title: "Model Mapping",
-                subtitle: "Advertise Claude model names locally and map them to DeepSeek targets."
+                title: "Configuration",
+                subtitle: "Review gateway readiness, inspect what Claude will use, and jump into focused settings only when something needs editing."
             ) {
                 Button {
-                    settings.resetModelDefaults()
+                    openSettings()
                 } label: {
-                    Label("Defaults", systemImage: "arrow.counterclockwise")
+                    Label("Open Settings", systemImage: "gearshape")
                 }
+                .buttonStyle(.borderedProminent)
+                .help("Open the focused configuration editor.")
             }
 
-            SettingsStack {
-                SettingsSectionCard(title: "Target Models") {
-                    SettingsRow("Haiku Target") {
-                        TextField("deepseek-v4-flash", text: $settings.haikuTargetModel)
-                            .textFieldStyle(.roundedBorder)
-                    }
-                    SettingsDivider()
-                    SettingsRow("Default Target") {
-                        TextField("deepseek-v4-pro[1m]", text: $settings.nonHaikuTargetModel)
-                            .textFieldStyle(.roundedBorder)
-                    }
-                }
+            ConfigurationReadinessBanner(settings: settings)
 
-                SettingsSectionCard(title: "Advertised Models") {
-                    TextEditor(text: $settings.advertisedModelsText)
-                        .font(.system(.body, design: .monospaced))
-                        .frame(minHeight: 180)
-                        .frame(maxWidth: .infinity)
-                        .scrollContentBackground(.hidden)
-                        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-                        .padding(.horizontal, 18)
-                        .padding(.top, 14)
-                    SettingsDivider()
-                    SettingsRow("Count") {
-                        Text("\(settings.advertisedModels.count)")
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                    }
-                }
+            HStack(alignment: .top, spacing: 18) {
+                ConfigurationChecklist(settings: settings)
+                    .frame(maxWidth: .infinity, alignment: .top)
 
-                SettingsSectionCard(title: "Preview") {
-                    ForEach(Array(settings.advertisedModels.enumerated()), id: \.element) { index, model in
-                        if index > 0 {
-                            SettingsDivider()
-                        }
-                        SettingsRow(model) {
-                            Text(mappedTarget(for: model))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                                .frame(maxWidth: .infinity, alignment: .trailing)
-                        }
-                    }
-                }
+                VStack(alignment: .leading, spacing: 18) {
+                    CardSection(title: "Claude Client", systemImage: "laptopcomputer") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            ConfigurationFactRow(label: "Gateway URL", value: "http://\(settings.host):\(settings.portText)")
+                            ConfigurationFactRow(label: "Visible Models", value: "\(settings.advertisedModels.count)")
+                            ConfigurationFactRow(label: "Default Target", value: settings.nonHaikuTargetModel)
 
-                SettingsActionBar {
-                    Spacer()
-                    Button {
-                        save()
-                    } label: {
-                        Label("Save and Sync", systemImage: "square.and.arrow.down")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                }
-            }
-        }
-    }
+                            HStack(spacing: 8) {
+                                Button {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(settings.claudeConfigSnippet, forType: .string)
+                                } label: {
+                                    Label("Copy Snippet", systemImage: "doc.on.doc")
+                                }
 
-    private func mappedTarget(for model: String) -> String {
-        model.localizedCaseInsensitiveContains("haiku") ? settings.haikuTargetModel : settings.nonHaikuTargetModel
-    }
-}
-
-private struct CredentialsPage: View {
-    @ObservedObject var settings: ProxySettingsStore
-    var save: () -> Void
-
-    var body: some View {
-        NativePage {
-            PageHeader(
-                title: "Credentials",
-                subtitle: "Keep the upstream DeepSeek key separate from the local gateway bearer key."
-            )
-
-            SettingsStack {
-                SettingsSectionCard(title: "Secrets") {
-                    SettingsRow("DeepSeek API Key") {
-                        SecureField("sk-...", text: $settings.deepSeekAPIKey)
-                            .textFieldStyle(.roundedBorder)
-                    }
-                    SettingsDivider()
-                    SettingsRow("Local Gateway Key") {
-                        HStack(spacing: 10) {
-                            SecureField("Claude uses this bearer key", text: $settings.localGatewayKey)
-                                .textFieldStyle(.roundedBorder)
-                            Button {
-                                settings.generateLocalGatewayKey()
-                            } label: {
-                                Label("Generate", systemImage: "key.fill")
+                                Button {
+                                    openSettings()
+                                } label: {
+                                    Label("Edit Client Settings", systemImage: "slider.horizontal.3")
+                                }
                             }
                         }
                     }
-                    SettingsDivider()
-                    SettingsRow("Secrets File") {
-                        SelectablePath(settings.secretsPathForDisplay)
-                    }
-                }
 
-                SettingsSectionCard(title: "Status") {
-                    SettingsRow("DeepSeek API Key") {
-                        Text(settings.deepSeekAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Not configured" : "Configured")
-                            .foregroundStyle(settings.deepSeekAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .orange : .secondary)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                    }
-                    SettingsDivider()
-                    SettingsRow("Local Gateway Key") {
-                        Text(settings.localGatewayKey.isEmpty ? "Not generated" : "Generated")
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                    }
-                }
+                    CardSection(title: "Runtime", systemImage: "shippingbox") {
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: settings.runtimeStatusIsError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                                .font(.title2)
+                                .foregroundStyle(settings.runtimeStatusIsError ? .orange : .green)
 
-                SettingsActionBar {
-                    Spacer()
-                    Button {
-                        save()
-                    } label: {
-                        Label("Save and Sync", systemImage: "square.and.arrow.down")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                }
-            }
-        }
-    }
-}
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(settings.runtimeStatusIsError ? "Needs Attention" : "Runtime Ready")
+                                    .font(.headline)
+                                Text(settings.runtimeStatusMessage.isEmpty ? "Runtime status is unknown." : settings.runtimeStatusMessage)
+                                    .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
+                            }
 
-private struct ClaudePage: View {
-    @ObservedObject var settings: ProxySettingsStore
-    var sync: () -> Void
+                            Spacer()
 
-    var body: some View {
-        NativePage {
-            PageHeader(
-                title: "Claude Integration",
-                subtitle: "Write the gateway configuration to Claude Desktop and Claude Code."
-            )
-
-            CardSection(title: "Configuration Snippet", systemImage: "curlybraces") {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(settings.claudeConfigSnippet)
-                        .font(.system(.caption, design: .monospaced))
-                        .textSelection(.enabled)
-                        .padding(10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
-
-                    HStack {
-                        Button {
-                            sync()
-                        } label: {
-                            Label("Save, Sync, and Start", systemImage: "arrow.triangle.2.circlepath")
-                        }
-                        .keyboardShortcut(.defaultAction)
-
-                        Button {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(settings.claudeConfigSnippet, forType: .string)
-                        } label: {
-                            Label("Copy Snippet", systemImage: "doc.on.doc")
+                            Button {
+                                settings.installBundledRuntime()
+                                settings.load()
+                            } label: {
+                                Label("Install or Repair", systemImage: "wrench.and.screwdriver")
+                            }
                         }
                     }
                 }
-            }
-
-            if !settings.claudeSyncStatusMessage.isEmpty {
-                InlineStatus(message: settings.claudeSyncStatusMessage, isError: settings.claudeSyncStatusIsError, monospaced: true)
-            }
-        }
-    }
-}
-
-private struct RuntimePage: View {
-    @ObservedObject var settings: ProxySettingsStore
-
-    var body: some View {
-        NativePage {
-            PageHeader(
-                title: "Runtime",
-                subtitle: "Install or repair the bundled proxy binary, scripts, and LaunchAgent support files."
-            )
-
-            CardSection(title: "Runtime Status", systemImage: "shippingbox") {
-                HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: settings.runtimeStatusIsError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                        .font(.title2)
-                        .foregroundStyle(settings.runtimeStatusIsError ? .orange : .green)
-
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(settings.runtimeStatusIsError ? "Needs Attention" : "Runtime Ready")
-                            .font(.headline)
-                        Text(settings.runtimeStatusMessage.isEmpty ? "Runtime status is unknown." : settings.runtimeStatusMessage)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                    }
-
-                    Spacer()
-
-                    Button {
-                        settings.installBundledRuntime()
-                        settings.load()
-                    } label: {
-                        Label("Install or Repair", systemImage: "wrench.and.screwdriver")
-                    }
-                }
+                .frame(maxWidth: .infinity, alignment: .top)
             }
 
             CardSection(title: "Files", systemImage: "folder") {
@@ -985,6 +808,173 @@ private struct RuntimePage: View {
                     }
                 }
             }
+        }
+    }
+}
+
+private struct ConfigurationReadinessBanner: View {
+    @ObservedObject var settings: ProxySettingsStore
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 14) {
+            Image(systemName: isReady ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+                .font(.system(size: 30, weight: .semibold))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(isReady ? .green : .orange)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(isReady ? "Gateway configuration is ready" : "Configuration needs attention")
+                    .font(.title3.weight(.semibold))
+                Text(isReady ? "Claude can use the local gateway after sync." : "Open Settings to finish required connection, credential, or model fields.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Text("\(completedCount)/\(items.count)")
+                .font(.title2.weight(.semibold).monospacedDigit())
+                .foregroundStyle(isReady ? .green : .orange)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background((isReady ? Color.green : Color.orange).opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .stroke((isReady ? Color.green : Color.orange).opacity(0.35), lineWidth: 1)
+        }
+    }
+
+    private var items: [ConfigurationChecklistItem] {
+        ConfigurationChecklistItem.make(settings: settings)
+    }
+
+    private var completedCount: Int {
+        items.filter(\.isComplete).count
+    }
+
+    private var isReady: Bool {
+        items.allSatisfy(\.isComplete)
+    }
+}
+
+private struct ConfigurationChecklist: View {
+    @ObservedObject var settings: ProxySettingsStore
+
+    var body: some View {
+        CardSection(title: "Setup Checklist", systemImage: "checklist") {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    if index > 0 {
+                        Divider()
+                    }
+                    ConfigurationChecklistRow(item: item)
+                }
+            }
+        }
+    }
+
+    private var items: [ConfigurationChecklistItem] {
+        ConfigurationChecklistItem.make(settings: settings)
+    }
+}
+
+private struct ConfigurationChecklistRow: View {
+    var item: ConfigurationChecklistItem
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: item.isComplete ? "checkmark.circle.fill" : "circle")
+                .font(.title3)
+                .foregroundStyle(item.isComplete ? .green : .secondary)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.title)
+                    .font(.headline)
+                Text(item.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer()
+
+            Text(item.status)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(item.isComplete ? Color.secondary : Color.orange)
+                .lineLimit(1)
+        }
+        .padding(.vertical, 12)
+    }
+}
+
+private struct ConfigurationChecklistItem: Identifiable, Hashable {
+    var title: String
+    var detail: String
+    var status: String
+    var isComplete: Bool
+
+    var id: String { title }
+
+    @MainActor
+    static func make(settings: ProxySettingsStore) -> [ConfigurationChecklistItem] {
+        let host = settings.host.trimmingCharacters(in: .whitespacesAndNewlines)
+        let port = settings.portText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let endpoint = settings.anthropicBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let deepSeekKey = settings.deepSeekAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let localKey = settings.localGatewayKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let haikuTarget = settings.haikuTargetModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let defaultTarget = settings.nonHaikuTargetModel.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return [
+            ConfigurationChecklistItem(
+                title: "Connection",
+                detail: host.isEmpty || port.isEmpty ? "Local listener is incomplete." : "\(host):\(port) forwards to \(endpoint)",
+                status: host.isEmpty || port.isEmpty || endpoint.isEmpty ? "Required" : "Ready",
+                isComplete: !host.isEmpty && !port.isEmpty && !endpoint.isEmpty
+            ),
+            ConfigurationChecklistItem(
+                title: "Credentials",
+                detail: "DeepSeek key is required. Local gateway key protects the local listener.",
+                status: deepSeekKey.isEmpty || localKey.isEmpty ? "Required" : "Ready",
+                isComplete: !deepSeekKey.isEmpty && !localKey.isEmpty
+            ),
+            ConfigurationChecklistItem(
+                title: "Model Routing",
+                detail: "\(settings.advertisedModels.count) Claude-visible models route to Haiku or default targets.",
+                status: settings.advertisedModels.isEmpty || haikuTarget.isEmpty || defaultTarget.isEmpty ? "Required" : "Ready",
+                isComplete: !settings.advertisedModels.isEmpty && !haikuTarget.isEmpty && !defaultTarget.isEmpty
+            ),
+            ConfigurationChecklistItem(
+                title: "Vision Provider",
+                detail: settings.visionProviderAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Optional image preprocessing is available without blocking text traffic." : "\(settings.visionProvider) key is configured.",
+                status: "Optional",
+                isComplete: true
+            ),
+            ConfigurationChecklistItem(
+                title: "Runtime",
+                detail: settings.runtimeStatusMessage.isEmpty ? "Runtime status has not reported yet." : settings.runtimeStatusMessage,
+                status: settings.runtimeStatusIsError ? "Repair" : "Ready",
+                isComplete: !settings.runtimeStatusIsError
+            ),
+        ]
+    }
+}
+
+private struct ConfigurationFactRow: View {
+    var label: String
+    var value: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 96, alignment: .leading)
+            Text(value.isEmpty ? "-" : value)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
         }
     }
 }
@@ -1220,13 +1210,28 @@ private struct CardSurface<Content: View>: View {
 
 private struct SettingsSectionCard<Content: View>: View {
     var title: String
+    var subtitle: String?
     @ViewBuilder var content: Content
+
+    init(title: String, subtitle: String? = nil, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.subtitle = subtitle
+        self.content = content()
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.headline)
-                .padding(.horizontal, 2)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.headline)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.horizontal, 2)
 
             VStack(alignment: .leading, spacing: 0) {
                 content
@@ -1268,20 +1273,6 @@ private struct SettingsDivider: View {
     var body: some View {
         Divider()
             .padding(.leading, 18)
-    }
-}
-
-private struct SettingsActionBar<Content: View>: View {
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        HStack(spacing: 10) {
-            content
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
     }
 }
 

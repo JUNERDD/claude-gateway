@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.0.13 - 2026-05-07
+
+### Added
+
+- Added a bundled `vision-provider` Claude MCP server and sync-time symlink installation into `~/.claude/mcp`.
+- Added generic Vision Provider settings (`auto`, `dashscope`, `gemini`, or `openai-compatible`) for agent-initiated image inspection.
+- Added local image attachment caching so Anthropic image blocks can be handed to Claude agents as `vision_describe` MCP calls.
+- Added test coverage for image attachment bridging, MCP sync, runtime status parsing, vision provider settings, and structured vision logs.
+
+### Changed
+
+- Reworked the main window sidebar, toolbar, and configuration surface into a simpler monitor/settings split.
+- Rebuilt the Settings window around native macOS tabs and grouped forms.
+- Made configuration fields consistent: fixed-width inputs, left-aligned labels, and hover-only field help.
+- Rewrote the README for app users instead of source-build developers.
+
+### Fixed
+
+- Added hover tooltips for icon-only toolbar and field-help controls.
+- Prevented long configuration values from stretching Settings input fields.
+- Kept image base64 out of token-count estimates and structured logs.
+
 ## 1.0.12 - 2026-05-07
 
 ### Fixed

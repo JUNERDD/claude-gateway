@@ -17,6 +17,7 @@ let serverFD = try openServerSocket(host: host, port: port)
 
 print("Claude DeepSeek Gateway: http://\(host):\(port)")
 print("Model rewrite: *haiku* -> \(settings.haikuTargetModel); other -> \(settings.nonHaikuTargetModel)")
+print("Image attachment bridge: enabled; vision MCP endpoint: /v1/vision/describe")
 print("Advertised models: \(settings.advertisedModels.joined(separator: ", "))")
 fflush(stdout)
 
@@ -29,6 +30,10 @@ while true {
         break
     }
     DispatchQueue.global(qos: .userInitiated).async {
-        HTTPConnection(fd: client, localMasterKey: masterKey, deepSeekAPIKey: deepSeekAPIKey).handle()
+        HTTPConnection(
+            fd: client,
+            localMasterKey: masterKey,
+            deepSeekAPIKey: deepSeekAPIKey
+        ).handle()
     }
 }

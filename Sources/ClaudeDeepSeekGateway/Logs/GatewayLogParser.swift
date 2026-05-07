@@ -102,6 +102,85 @@ enum GatewayLogParser {
                 detailJSON: prettyJSON(object)
             )
 
+        case "gemini_vision_preprocess":
+            let imageCount = object["imageCount"] as? Int ?? 0
+            let successCount = object["successCount"] as? Int ?? 0
+            let fallbackCount = object["fallbackCount"] as? Int ?? 0
+            let duration = object["durationMs"] as? Int ?? 0
+            let model = object["model"] as? String ?? "-"
+            return GatewayLogEvent(
+                id: id,
+                timestamp: timestamp,
+                tone: fallbackCount > 0 ? .warning : .request,
+                title: "Gemini 图片预处理",
+                subtitle: "\(successCount)/\(imageCount) 张成功",
+                fields: [
+                    GatewayLogField(label: "模型", value: model),
+                    GatewayLogField(label: "降级", value: "\(fallbackCount)"),
+                    GatewayLogField(label: "耗时", value: "\(duration) ms"),
+                    GatewayLogField(label: "request", value: shortRequestID(requestID)),
+                ],
+                detailTitle: "Gemini 图片预处理",
+                detailJSON: prettyJSON(object)
+            )
+
+        case "image_attachment_bridge":
+            let imageCount = object["imageCount"] as? Int ?? 0
+            let savedCount = object["savedCount"] as? Int ?? 0
+            let fallbackCount = object["fallbackCount"] as? Int ?? 0
+            let totalBytes = object["totalBytes"] as? Int ?? 0
+            return GatewayLogEvent(
+                id: id,
+                timestamp: timestamp,
+                tone: fallbackCount > 0 ? .warning : .request,
+                title: "图片附件桥接",
+                subtitle: "\(savedCount)/\(imageCount) 张已保存",
+                fields: [
+                    GatewayLogField(label: "降级", value: "\(fallbackCount)"),
+                    GatewayLogField(label: "大小", value: "\(totalBytes) bytes"),
+                    GatewayLogField(label: "request", value: shortRequestID(requestID)),
+                ],
+                detailTitle: "图片附件桥接",
+                detailJSON: prettyJSON(object)
+            )
+
+        case "vision_gateway_request":
+            return GatewayLogEvent(
+                id: id,
+                timestamp: timestamp,
+                tone: .request,
+                title: "Vision MCP 请求",
+                subtitle: object["path"] as? String ?? "/v1/vision/describe",
+                fields: [
+                    GatewayLogField(label: "body", value: "\(object["bodyBytes"] as? Int ?? 0) bytes"),
+                    GatewayLogField(label: "request", value: shortRequestID(requestID)),
+                ],
+                detailTitle: "Vision MCP 请求",
+                detailJSON: prettyJSON(object)
+            )
+
+        case "vision_gateway_response":
+            let status = object["status"] as? Int ?? 0
+            let duration = object["durationMs"] as? Int ?? 0
+            let provider = object["provider"] as? String ?? "-"
+            let model = object["model"] as? String ?? "-"
+            return GatewayLogEvent(
+                id: id,
+                timestamp: timestamp,
+                tone: (200..<300).contains(status) ? .response : .error,
+                title: "Vision MCP 响应",
+                subtitle: "HTTP \(status)",
+                fields: [
+                    GatewayLogField(label: "provider", value: provider),
+                    GatewayLogField(label: "模型", value: model),
+                    GatewayLogField(label: "图片", value: "\(object["imageBytes"] as? Int ?? 0) bytes"),
+                    GatewayLogField(label: "耗时", value: "\(duration) ms"),
+                    GatewayLogField(label: "request", value: shortRequestID(requestID)),
+                ],
+                detailTitle: "Vision MCP 响应",
+                detailJSON: prettyJSON(object)
+            )
+
         default:
             return GatewayLogEvent(
                 id: id,

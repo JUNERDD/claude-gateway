@@ -7,6 +7,8 @@ struct ClaudeConfigSyncReport {
     var updatedClaudeCodeSettings: [String] = []
     var createdClaudeCodeSettings: [String] = []
     var unchangedClaudeCodeSettings: [String] = []
+    var installedClaudeMCPServers: [String] = []
+    var unchangedClaudeMCPServers: [String] = []
     var backups: [String] = []
     var refreshedCaches: [String] = []
     var warnings: [String] = []
@@ -26,6 +28,17 @@ struct ClaudeConfigSyncReport {
             parts.append("已同步 Claude Code 配置。")
         } else if !unchangedClaudeCodeSettings.isEmpty, updated.isEmpty, created.isEmpty, refreshedCaches.isEmpty {
             parts.append("Claude Code 配置已匹配。")
+        }
+        if !installedClaudeMCPServers.isEmpty {
+            parts.append("已同步 \(installedClaudeMCPServers.count) 个 Claude MCP Server。")
+        } else if !unchangedClaudeMCPServers.isEmpty,
+            updated.isEmpty,
+            created.isEmpty,
+            updatedClaudeCodeSettings.isEmpty,
+            createdClaudeCodeSettings.isEmpty,
+            refreshedCaches.isEmpty
+        {
+            parts.append("\(unchangedClaudeMCPServers.count) 个 Claude MCP Server 已匹配。")
         }
         if !refreshedCaches.isEmpty {
             parts.append("已刷新 gateway 模型缓存。")
@@ -48,6 +61,8 @@ struct ClaudeConfigSyncReport {
         appendSection("Claude Code 已更新", updatedClaudeCodeSettings, to: &lines)
         appendSection("Claude Code 已创建", createdClaudeCodeSettings, to: &lines)
         appendSection("Claude Code 已匹配", unchangedClaudeCodeSettings, to: &lines)
+        appendSection("Claude MCP Server 已同步", installedClaudeMCPServers, to: &lines)
+        appendSection("Claude MCP Server 已匹配", unchangedClaudeMCPServers, to: &lines)
         appendSection("备份", backups, to: &lines)
         appendSection("缓存备份", refreshedCaches, to: &lines)
         appendSection("警告", warnings, to: &lines)
@@ -78,6 +93,8 @@ enum ClaudeDesktopConfigSync {
 
     static func sync(settings: ProxyDiskSettings, localGatewayKey: String) -> ClaudeConfigSyncReport {
         var report = ClaudeConfigSyncReport()
+        syncBundledClaudeMCPServers(report: &report)
+
         let key = localGatewayKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else {
             report.warnings.append("LOCAL_GATEWAY_KEY 为空，无法同步 Claude 客户端鉴权")
@@ -91,6 +108,7 @@ enum ClaudeDesktopConfigSync {
             "inferenceGatewayApiKey": key,
             "inferenceModels": settings.advertisedModels,
         ]
+        let mcpServerConfig = visionMCPServerConfig(settings: settings, localGatewayKey: key)
 
         let configURLs = targetConfigURLs(report: &report)
         if configURLs.isEmpty {
@@ -99,7 +117,12 @@ enum ClaudeDesktopConfigSync {
 
         for url in configURLs {
             do {
-                try updateJSONConfig(at: url, gatewayFields: gatewayFields, report: &report)
+                try updateJSONConfig(
+                    at: url,
+                    gatewayFields: gatewayFields,
+                    mcpServerConfig: mcpServerConfig,
+                    report: &report
+                )
             } catch {
                 report.warnings.append("\(url.lastPathComponent): \(error.localizedDescription)")
             }
@@ -108,6 +131,155 @@ enum ClaudeDesktopConfigSync {
         syncClaudeCodeSettings(settings: settings, localGatewayKey: key, report: &report)
         refreshGatewayModelCache(report: &report)
         return report
+    }
+
+    static func syncBundledClaudeMCPServers(report: inout ClaudeConfigSyncReport) {
+        syncBundledClaudeMCPServers(
+            sourceRoot: bundledClaudeMCPServersSourceURL(),
+            destinationRoot: claudeMCPServersDestinationRoot(),
+            report: &report
+        )
+    }
+
+    static func syncBundledClaudeMCPServers(
+        sourceRoot: URL?,
+        destinationRoot: URL,
+        report: inout ClaudeConfigSyncReport
+    ) {
+        let fm = FileManager.default
+        guard let sourceRoot else {
+            report.warnings.append("未找到内置 Claude MCP Servers 源目录")
+            return
+        }
+
+        let serverSources: [URL]
+        do {
+            serverSources = try fm.contentsOfDirectory(
+                at: sourceRoot,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            )
+            .filter { url in
+                let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
+                guard values?.isDirectory == true else {
+                    return false
+                }
+                return fm.fileExists(atPath: url.appendingPathComponent("server.py").path)
+            }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        } catch {
+            report.warnings.append("Claude MCP Servers 源目录读取失败：\(error.localizedDescription)")
+            return
+        }
+
+        guard !serverSources.isEmpty else {
+            report.warnings.append("Claude MCP Servers 源目录没有可同步的 server.py：\(sourceRoot.path)")
+            return
+        }
+
+        do {
+            try fm.createDirectory(
+                at: destinationRoot,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+        } catch {
+            report.warnings.append("Claude MCP Servers 目录创建失败：\(error.localizedDescription)")
+            return
+        }
+
+        for sourceURL in serverSources {
+            do {
+                try syncClaudeMCPServer(sourceURL: sourceURL, destinationRoot: destinationRoot, report: &report)
+            } catch {
+                report.warnings.append("Claude MCP Server \(sourceURL.lastPathComponent) 同步失败：\(error.localizedDescription)")
+            }
+        }
+    }
+
+    private static func syncClaudeMCPServer(
+        sourceURL: URL,
+        destinationRoot: URL,
+        report: inout ClaudeConfigSyncReport
+    ) throws {
+        let fm = FileManager.default
+        let sourcePath = sourceURL.standardizedFileURL.path
+        let destinationURL = destinationRoot.appendingPathComponent(sourceURL.lastPathComponent, isDirectory: true)
+
+        if let linkedPath = try? fm.destinationOfSymbolicLink(atPath: destinationURL.path) {
+            let linkedURL = resolvedSymbolicLinkDestination(
+                linkedPath,
+                relativeTo: destinationURL.deletingLastPathComponent()
+            )
+            if linkedURL.standardizedFileURL.path == sourcePath {
+                report.unchangedClaudeMCPServers.append("\(destinationURL.path) -> \(sourcePath)")
+                return
+            }
+            try fm.removeItem(at: destinationURL)
+        } else {
+            var isDirectory: ObjCBool = false
+            if fm.fileExists(atPath: destinationURL.path, isDirectory: &isDirectory) {
+                let backupURL = backupURL(for: destinationURL)
+                try fm.moveItem(at: destinationURL, to: backupURL)
+                report.backups.append(backupURL.path)
+            }
+        }
+
+        try fm.createSymbolicLink(atPath: destinationURL.path, withDestinationPath: sourcePath)
+        report.installedClaudeMCPServers.append("\(destinationURL.path) -> \(sourcePath)")
+    }
+
+    private static func bundledClaudeMCPServersSourceURL() -> URL? {
+        let fm = FileManager.default
+        var candidates: [URL] = []
+        if let override = ProcessInfo.processInfo.environment["CLAUDE_DEEPSEEK_GATEWAY_CLAUDE_MCP_SOURCE"],
+            !override.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+            candidates.append(URL(fileURLWithPath: expandTilde(override), isDirectory: true))
+        }
+        if let resourceURL = Bundle.main.resourceURL {
+            candidates.append(resourceURL.appendingPathComponent("ClaudeMCPServers", isDirectory: true))
+        }
+        candidates.append(
+            URL(fileURLWithPath: fm.currentDirectoryPath, isDirectory: true)
+                .appendingPathComponent("Resources/ClaudeMCPServers", isDirectory: true)
+        )
+
+        for candidate in candidates {
+            var isDirectory: ObjCBool = false
+            if fm.fileExists(atPath: candidate.path, isDirectory: &isDirectory), isDirectory.boolValue {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    private static func claudeMCPServersDestinationRoot() -> URL {
+        let environment = ProcessInfo.processInfo.environment
+        if let override = environment["CLAUDE_DEEPSEEK_GATEWAY_CLAUDE_MCP_DESTINATION"],
+            !override.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+            return URL(fileURLWithPath: expandTilde(override), isDirectory: true)
+        }
+        if let claudeHome = environment["CLAUDE_DEEPSEEK_GATEWAY_CLAUDE_HOME"],
+            !claudeHome.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+            return URL(fileURLWithPath: expandTilde(claudeHome), isDirectory: true)
+                .appendingPathComponent("mcp", isDirectory: true)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/mcp", isDirectory: true)
+    }
+
+    private static func resolvedSymbolicLinkDestination(_ path: String, relativeTo directory: URL) -> URL {
+        if path.hasPrefix("/") {
+            return URL(fileURLWithPath: path)
+        }
+        return directory.appendingPathComponent(path)
+    }
+
+    private static func expandTilde(_ path: String) -> String {
+        NSString(string: path).expandingTildeInPath
     }
 
     private static func targetConfigURLs(report: inout ClaudeConfigSyncReport) -> [URL] {
@@ -216,7 +388,12 @@ enum ClaudeDesktopConfigSync {
         return library.appendingPathComponent("\(id).json")
     }
 
-    private static func updateJSONConfig(at url: URL, gatewayFields: [String: Any], report: inout ClaudeConfigSyncReport) throws {
+    private static func updateJSONConfig(
+        at url: URL,
+        gatewayFields: [String: Any],
+        mcpServerConfig: [String: Any]?,
+        report: inout ClaudeConfigSyncReport
+    ) throws {
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true,
@@ -239,6 +416,9 @@ enum ClaudeDesktopConfigSync {
         for (key, value) in gatewayFields {
             object[key] = value
         }
+        if let mcpServerConfig {
+            try mergeVisionMCPServerConfig(mcpServerConfig, into: &object)
+        }
 
         if existed, try jsonData(object) == jsonData(originalObject) {
             report.unchanged.append(url.path)
@@ -256,6 +436,17 @@ enum ClaudeDesktopConfigSync {
         report.updated.append(url.path)
     }
 
+    private static func mergeVisionMCPServerConfig(_ serverConfig: [String: Any], into object: inout [String: Any]) throws {
+        guard object["mcpServers"] == nil || object["mcpServers"] is [String: Any] else {
+            throw NSError(domain: "ClaudeDesktopConfigSync", code: 2, userInfo: [
+                NSLocalizedDescriptionKey: "mcpServers 不是 JSON object",
+            ])
+        }
+        var mcpServers = object["mcpServers"] as? [String: Any] ?? [:]
+        mcpServers["vision-provider"] = serverConfig
+        object["mcpServers"] = mcpServers
+    }
+
     private static func refreshGatewayModelCache(report: inout ClaudeConfigSyncReport) {
         let cacheURL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude/cache/gateway-models.json")
@@ -269,6 +460,24 @@ enum ClaudeDesktopConfigSync {
         } catch {
             report.warnings.append("gateway 模型缓存刷新失败：\(error.localizedDescription)")
         }
+    }
+
+    private static func visionMCPServerConfig(settings: ProxyDiskSettings, localGatewayKey: String) -> [String: Any]? {
+        let serverURL = claudeMCPServersDestinationRoot()
+            .appendingPathComponent("vision-provider", isDirectory: true)
+            .appendingPathComponent("server.py")
+        guard FileManager.default.fileExists(atPath: serverURL.path) else {
+            return nil
+        }
+        return [
+            "type": "stdio",
+            "command": "python3",
+            "args": [serverURL.path],
+            "env": [
+                "CLAUDE_DEEPSEEK_GATEWAY_URL": "http://\(settings.host):\(settings.port)",
+                "LOCAL_GATEWAY_KEY": localGatewayKey,
+            ],
+        ]
     }
 
     private static func syncClaudeCodeSettings(settings: ProxyDiskSettings, localGatewayKey: String, report: inout ClaudeConfigSyncReport) {
@@ -307,6 +516,15 @@ enum ClaudeDesktopConfigSync {
             }
             object["env"] = env
 
+            if let mcpServerConfig = visionMCPServerConfig(settings: settings, localGatewayKey: localGatewayKey) {
+                try mergeVisionMCPServerConfig(mcpServerConfig, into: &object)
+                try syncClaudeCodeUserMCPConfig(
+                    at: claudeCodeUserConfigURL(),
+                    mcpServerConfig: mcpServerConfig,
+                    report: &report
+                )
+            }
+
             if let model = object["model"] as? String,
                 let normalizedModel = normalizedClaudeCodeModel(model)
             {
@@ -336,6 +554,57 @@ enum ClaudeDesktopConfigSync {
         } catch {
             report.warnings.append("Claude Code settings.json 同步失败：\(error.localizedDescription)")
         }
+    }
+
+    static func syncClaudeCodeUserMCPConfig(
+        at url: URL,
+        mcpServerConfig: [String: Any],
+        report: inout ClaudeConfigSyncReport
+    ) throws {
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+
+        var object: [String: Any] = [:]
+        var originalObject: [String: Any] = [:]
+        let existed = FileManager.default.fileExists(atPath: url.path)
+        if existed, let data = try? Data(contentsOf: url), !data.isEmpty {
+            guard let decoded = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw NSError(domain: "ClaudeDesktopConfigSync", code: 3, userInfo: [
+                    NSLocalizedDescriptionKey: "\(url.lastPathComponent) 不是 JSON object",
+                ])
+            }
+            object = decoded
+            originalObject = decoded
+        }
+
+        try mergeVisionMCPServerConfig(mcpServerConfig, into: &object)
+
+        if existed, try jsonData(object) == jsonData(originalObject) {
+            report.unchangedClaudeCodeSettings.append(url.path)
+            return
+        }
+
+        if existed {
+            let backupURL = backupURL(for: url)
+            try FileManager.default.copyItem(at: url, to: backupURL)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backupURL.path)
+            report.backups.append(backupURL.path)
+        }
+
+        try writeJSONObject(object, to: url)
+        if existed {
+            report.updatedClaudeCodeSettings.append(url.path)
+        } else {
+            report.createdClaudeCodeSettings.append(url.path)
+        }
+    }
+
+    private static func claudeCodeUserConfigURL() -> URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude.json")
     }
 
     private static func normalizedClaudeCodeModel(_ model: String) -> String? {
@@ -416,6 +685,9 @@ enum ClaudeDesktopConfigSync {
             anthropicBaseURL: decoded.anthropicBaseURL.isEmpty ? ProxyDiskSettings.defaults.anthropicBaseURL : decoded.anthropicBaseURL,
             haikuTargetModel: decoded.haikuTargetModel.isEmpty ? ProxyDiskSettings.defaults.haikuTargetModel : decoded.haikuTargetModel,
             nonHaikuTargetModel: decoded.nonHaikuTargetModel.isEmpty ? ProxyDiskSettings.defaults.nonHaikuTargetModel : decoded.nonHaikuTargetModel,
+            visionProvider: decoded.visionProvider,
+            visionProviderModel: decoded.visionProviderModel.trimmingCharacters(in: .whitespacesAndNewlines),
+            visionProviderBaseURL: decoded.visionProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines),
             advertisedModels: decoded.advertisedModels.isEmpty ? ProxyDiskSettings.defaultAdvertisedModels : decoded.advertisedModels
         )
     }
