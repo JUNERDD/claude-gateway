@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "ClaudeDeepSeekGateway",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS("14.4")],
     products: [
         .executable(name: "ClaudeDeepSeekGateway", targets: ["ClaudeDeepSeekGateway"]),
         .executable(name: "DeepSeekAliasProxy", targets: ["DeepSeekAliasProxy"]),

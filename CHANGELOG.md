@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.9 - 2026-05-07
+
+### Added
+
+- Added a native macOS split-view main window with real navigation for overview, requests, issues, logs, endpoint, model mapping, credentials, Claude integration, and runtime.
+- Added dashboard metrics sourced from structured gateway logs, including request history tables and issue views.
+
+### Changed
+
+- Reworked configuration screens with full-width native controls, consistent card padding, and clearer section spacing.
+- Improved log browsing with search and level filtering.
+- Raised the minimum macOS version to 14.4 for newer SwiftUI table and inspector components.
+
 ## 1.0.8 - 2026-05-06
 
 ### Added
