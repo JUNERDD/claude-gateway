@@ -3,20 +3,16 @@ import SwiftUI
 
 struct LogTimelineView: View {
     @ObservedObject var runner: ProxyController
-    @State private var rawTail = ""
     @State private var events: [GatewayLogEvent] = []
+    @State private var filteredEvents: [GatewayLogEvent] = []
     @State private var detailEvent: GatewayLogEvent?
     @State private var filter: LogEventFilter = .all
     @State private var searchText = ""
     @State private var autoRefresh = true
+    @State private var tailSignature: PersistentLogTailSignature?
+    @State private var reloadInFlight = false
+    @State private var parseGeneration = 0
     private let refreshTimer = Timer.publish(every: 1.2, on: .main, in: .common).autoconnect()
-
-    private var filteredEvents: [GatewayLogEvent] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return events.filter { event in
-            filter.includes(event) && (query.isEmpty || event.matchesSearch(query))
-        }
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -105,20 +101,55 @@ struct LogTimelineView: View {
             guard autoRefresh else { return }
             reload()
         }
+        .onChange(of: filter) { _, _ in
+            applyFilter()
+        }
+        .onChange(of: searchText) { _, _ in
+            applyFilter()
+        }
     }
 
     private func reload() {
-        runner.logStore.readTail(maxBytes: 5_000_000) { tail in
-            guard tail != rawTail else { return }
-            rawTail = tail
-            events = GatewayLogParser.parse(tail)
+        guard !reloadInFlight else { return }
+        reloadInFlight = true
+        runner.logStore.readTail(maxBytes: 5_000_000, ifChangedFrom: tailSignature) { read in
+            guard let read else {
+                reloadInFlight = false
+                return
+            }
+
+            tailSignature = read.signature
+            parseGeneration += 1
+            let generation = parseGeneration
+            Task.detached(priority: .userInitiated) {
+                let parsed = GatewayLogParser.parse(read.text)
+                await MainActor.run {
+                    guard parseGeneration == generation else {
+                        reloadInFlight = false
+                        return
+                    }
+                    events = parsed
+                    applyFilter()
+                    reloadInFlight = false
+                }
+            }
         }
     }
 
     private func clearLogs() {
         runner.clearLog()
-        rawTail = ""
+        tailSignature = nil
+        parseGeneration += 1
+        reloadInFlight = false
         events = []
+        filteredEvents = []
+    }
+
+    private func applyFilter() {
+        let query = GatewayLogEvent.normalizedSearchText(searchText.trimmingCharacters(in: .whitespacesAndNewlines))
+        filteredEvents = events.filter { event in
+            filter.includes(event) && (query.isEmpty || event.matchesSearch(query))
+        }
     }
 }
 
@@ -187,16 +218,6 @@ private struct LogEmptyState: View {
 
 private extension GatewayLogEvent {
     func matchesSearch(_ query: String) -> Bool {
-        let haystack = [
-            timestamp,
-            tone.label,
-            title,
-            subtitle,
-            fields.map { "\($0.label) \($0.value)" }.joined(separator: " "),
-            detailTitle ?? "",
-            detailJSON ?? "",
-        ].joined(separator: " ")
-
-        return haystack.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+        searchIndex.contains(query)
     }
 }

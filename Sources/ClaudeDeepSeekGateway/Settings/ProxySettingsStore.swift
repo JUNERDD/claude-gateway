@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 
+@MainActor
 final class ProxySettingsStore: ObservableObject {
     @Published var host: String = ProxyDiskSettings.defaults.host
     @Published var portText: String = String(ProxyDiskSettings.defaults.port)
@@ -19,12 +20,15 @@ final class ProxySettingsStore: ObservableObject {
 
     private let configURL: URL
     private let secretsURL: URL
+    private var runtimeInstallTask: Task<Void, Never>?
+    private var persistAndSyncTask: Task<Void, Never>?
+    private var operationGeneration = 0
 
     init() {
         configURL = BundledRuntimeInstaller.settingsURL
         secretsURL = BundledRuntimeInstaller.secretsURL
-        installBundledRuntime()
         load()
+        installBundledRuntime()
     }
 
     var configPathForDisplay: String {
@@ -113,13 +117,36 @@ final class ProxySettingsStore: ObservableObject {
             try Data(secrets.utf8).write(to: secretsURL, options: .atomic)
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: secretsURL.path)
 
-            let syncReport = ClaudeDesktopConfigSync.sync(settings: settings, localGatewayKey: localGatewayKey)
-            let serviceMessage = try LaunchAgentManager.start()
-            statusMessage = "\(successPrefix)\(syncReport.userMessage) \(serviceMessage)"
-            statusIsError = false
-            claudeSyncStatusMessage = "\(syncReport.detailMessage)\nLaunchAgent:\n  \(serviceMessage)"
-            claudeSyncStatusIsError = !syncReport.warnings.isEmpty
+            let key = localGatewayKey
+            operationGeneration += 1
+            let generation = operationGeneration
+            persistAndSyncTask?.cancel()
+            persistAndSyncTask = Task { [weak self] in
+                let result = await Task.detached(priority: .userInitiated) {
+                    let syncReport = ClaudeDesktopConfigSync.sync(settings: settings, localGatewayKey: key)
+                    let serviceMessage = try LaunchAgentManager.start()
+                    return (syncReport, serviceMessage)
+                }.result
+
+                guard let self, self.operationGeneration == generation else { return }
+                switch result {
+                case let .success((syncReport, serviceMessage)):
+                    self.statusMessage = "\(successPrefix)\(syncReport.userMessage) \(serviceMessage)"
+                    self.statusIsError = false
+                    self.claudeSyncStatusMessage = "\(syncReport.detailMessage)\nLaunchAgent:\n  \(serviceMessage)"
+                    self.claudeSyncStatusIsError = !syncReport.warnings.isEmpty
+                case let .failure(error):
+                    self.statusMessage = "操作失败：\(error.localizedDescription)"
+                    self.statusIsError = true
+                    self.claudeSyncStatusMessage = self.statusMessage
+                    self.claudeSyncStatusIsError = true
+                }
+                self.persistAndSyncTask = nil
+            }
         } catch {
+            operationGeneration += 1
+            persistAndSyncTask?.cancel()
+            persistAndSyncTask = nil
             statusMessage = "操作失败：\(error.localizedDescription)"
             statusIsError = true
             claudeSyncStatusMessage = statusMessage
@@ -127,14 +154,26 @@ final class ProxySettingsStore: ObservableObject {
         }
     }
 
-    func installBundledRuntime() {
-        do {
-            let report = try BundledRuntimeInstaller.installOrRepair()
-            runtimeStatusMessage = report.userMessage
-            runtimeStatusIsError = !report.warnings.isEmpty
-        } catch {
-            runtimeStatusMessage = "运行时安装失败：\(error.localizedDescription)"
-            runtimeStatusIsError = true
+    func installBundledRuntime(reloadSettingsAfterInstall: Bool = false) {
+        runtimeInstallTask?.cancel()
+        runtimeInstallTask = Task { [weak self] in
+            let result = await Task.detached(priority: .utility) {
+                try BundledRuntimeInstaller.installOrRepair()
+            }.result
+
+            guard let self else { return }
+            switch result {
+            case let .success(report):
+                self.runtimeStatusMessage = report.userMessage
+                self.runtimeStatusIsError = !report.warnings.isEmpty
+                if reloadSettingsAfterInstall {
+                    self.load()
+                }
+            case let .failure(error):
+                self.runtimeStatusMessage = "运行时安装失败：\(error.localizedDescription)"
+                self.runtimeStatusIsError = true
+            }
+            self.runtimeInstallTask = nil
         }
     }
 

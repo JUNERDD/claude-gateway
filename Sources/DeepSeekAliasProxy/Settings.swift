@@ -17,10 +17,14 @@ struct ProxySettings {
 final class SettingsLoader {
     static let shared = SettingsLoader()
 
+    private let lock = NSLock()
     private var cached: ProxySettings?
     private var cachedMTime: timespec?
 
     func load() -> ProxySettings {
+        lock.lock()
+        defer { lock.unlock() }
+
         let path = settingsPath()
         var statBuffer = stat()
         let exists = stat(path, &statBuffer) == 0

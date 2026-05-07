@@ -86,4 +86,25 @@ struct GatewayLogEvent: Identifiable {
     var fields: [GatewayLogField]
     var detailTitle: String?
     var detailJSON: String?
+    var searchIndex: String = ""
+
+    func indexedForSearch() -> GatewayLogEvent {
+        var copy = self
+        copy.searchIndex = Self.normalizedSearchText([
+            timestamp,
+            tone.label,
+            title,
+            subtitle,
+            fields.map { "\($0.label) \($0.value)" }.joined(separator: " "),
+            detailTitle ?? "",
+            detailJSON ?? "",
+        ].joined(separator: " "))
+        return copy
+    }
+
+    static func normalizedSearchText(_ value: String) -> String {
+        value
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .lowercased()
+    }
 }

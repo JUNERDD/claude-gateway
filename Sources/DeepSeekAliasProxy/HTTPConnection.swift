@@ -28,6 +28,10 @@ final class HTTPConnection {
 
         do {
             let request = try readRequest()
+            if writeHealthCheckIfNeeded(request) {
+                return
+            }
+
             guard authorized(request) else {
                 writeLoggedJSON(status: 401, payload: [
                     "error": [
@@ -39,10 +43,6 @@ final class HTTPConnection {
             }
 
             switch (request.method, request.urlPath) {
-            case ("HEAD", "/"), ("HEAD", "/health/liveliness"):
-                writeLoggedRawResponse(status: 200, headers: ["content-length": "0"], body: Data(), request: request)
-            case ("GET", "/"), ("GET", "/health/liveliness"):
-                writeLoggedJSON(status: 200, payload: ["status": "ok"], request: request)
             case ("GET", "/v1/models"):
                 writeModels(request)
             case ("POST", "/v1/messages/count_tokens"):
@@ -59,6 +59,19 @@ final class HTTPConnection {
                     "message": error.localizedDescription,
                 ],
             ])
+        }
+    }
+
+    private func writeHealthCheckIfNeeded(_ request: HTTPRequest) -> Bool {
+        switch (request.method, request.urlPath) {
+        case ("HEAD", "/"), ("HEAD", "/health/liveliness"):
+            writeLoggedRawResponse(status: 200, headers: ["content-length": "0"], body: Data(), request: request)
+            return true
+        case ("GET", "/"), ("GET", "/health/liveliness"):
+            writeLoggedJSON(status: 200, payload: ["status": "ok"], request: request)
+            return true
+        default:
+            return false
         }
     }
 

@@ -50,14 +50,7 @@ struct LogDetailSheet: View {
                     }
                 }
 
-                ScrollView([.horizontal, .vertical]) {
-                    Text(event.detailJSON ?? "{}")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(.primary)
-                        .textSelection(.enabled)
-                        .padding(10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                LogDetailTextView(text: event.detailJSON ?? "{}")
                 .frame(minHeight: 320)
                 .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
                 .overlay(
@@ -87,6 +80,58 @@ struct LogDetailSheet: View {
         }
         .frame(width: 720, height: 500)
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+}
+
+private struct LogDetailTextView: NSViewRepresentable {
+    var text: String
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.drawsBackground = true
+        scrollView.backgroundColor = .textBackgroundColor
+        scrollView.borderType = .noBorder
+
+        let textView = NSTextView()
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isRichText = false
+        textView.drawsBackground = false
+        textView.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        textView.textColor = .labelColor
+        textView.textContainerInset = NSSize(width: 10, height: 10)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = true
+        textView.minSize = .zero
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.textContainer?.widthTracksTextView = false
+        textView.textContainer?.heightTracksTextView = false
+        textView.textContainer?.containerSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+
+        scrollView.documentView = textView
+        context.coordinator.textView = textView
+        return scrollView
+    }
+
+    func updateNSView(_ nsView: NSScrollView, context: Context) {
+        guard context.coordinator.currentText != text else { return }
+        context.coordinator.currentText = text
+        context.coordinator.textView?.string = text
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    final class Coordinator {
+        weak var textView: NSTextView?
+        var currentText = ""
     }
 }
 

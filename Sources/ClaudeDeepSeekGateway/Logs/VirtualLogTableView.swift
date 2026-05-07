@@ -37,7 +37,7 @@ struct VirtualLogTableView: NSViewRepresentable {
         table.doubleAction = #selector(Coordinator.openSelectedDetail(_:))
 
         context.coordinator.tableView = table
-        context.coordinator.events = events
+        context.coordinator.replaceEvents(events)
 
         addColumn("time", title: "Time", width: 76, minWidth: 68, to: table)
         addColumn("level", title: "", width: 78, minWidth: 68, to: table)
@@ -56,11 +56,13 @@ struct VirtualLogTableView: NSViewRepresentable {
         context.coordinator.onShowDetails = onShowDetails
         if let table = context.coordinator.tableView {
             let previousEvents = context.coordinator.events
-            let selectedIDs = table.selectedRowIndexes.compactMap { index in
+            let selectedIDs = Set(table.selectedRowIndexes.compactMap { index in
                 previousEvents.indices.contains(index) ? previousEvents[index].id : nil
+            })
+            let changed = context.coordinator.replaceEvents(events)
+            if changed {
+                table.reloadData()
             }
-            context.coordinator.events = events
-            table.reloadData()
             let indexes = IndexSet(events.enumerated().compactMap { index, event in
                 selectedIDs.contains(event.id) ? index : nil
             })
@@ -68,7 +70,7 @@ struct VirtualLogTableView: NSViewRepresentable {
                 table.selectRowIndexes(indexes, byExtendingSelection: false)
             }
         } else {
-            context.coordinator.events = events
+            context.coordinator.replaceEvents(events)
         }
     }
 
@@ -92,10 +94,22 @@ struct VirtualLogTableView: NSViewRepresentable {
     final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         weak var tableView: NSTableView?
         var events: [GatewayLogEvent] = []
+        private var eventIDs: [String] = []
+        private var projections: [LogRowProjection] = []
         var onShowDetails: (GatewayLogEvent) -> Void
 
         init(onShowDetails: @escaping (GatewayLogEvent) -> Void) {
             self.onShowDetails = onShowDetails
+        }
+
+        @discardableResult
+        func replaceEvents(_ newEvents: [GatewayLogEvent]) -> Bool {
+            let newIDs = newEvents.map(\.id)
+            guard newIDs != eventIDs else { return false }
+            events = newEvents
+            eventIDs = newIDs
+            projections = newEvents.map(LogRowProjection.init(event:))
+            return true
         }
 
         func numberOfRows(in tableView: NSTableView) -> Int {
@@ -118,7 +132,7 @@ struct VirtualLogTableView: NSViewRepresentable {
             }
 
             let event = events[row]
-            let projection = LogRowProjection(event: event)
+            let projection = projections.indices.contains(row) ? projections[row] : LogRowProjection(event: event)
             switch columnID {
             case "time":
                 return textCell(

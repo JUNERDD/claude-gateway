@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.12 - 2026-05-07
+
+### Fixed
+
+- Allowed unauthenticated health checks on `/` and `/health/liveliness` while keeping gateway API endpoints protected by the local bearer key.
+
+### Changed
+
+- Reduced startup and log-view stalls by moving service checks and large log parsing off the main UI thread.
+- Avoided repeated log parsing when the persistent log file has not changed.
+- Improved large log-detail rendering and proxy log-write throughput.
+
 ## 1.0.10 - 2026-05-07
 
 ### Changed

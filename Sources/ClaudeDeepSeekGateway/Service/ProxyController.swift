@@ -2,6 +2,19 @@ import SwiftUI
 
 // MARK: - Gateway service controller
 
+private struct ProxyServiceStatus {
+    var pid: Int32?
+    var uptime: TimeInterval?
+}
+
+private func currentProxyServiceStatus() -> ProxyServiceStatus {
+    let pid = LaunchAgentManager.runningPID()
+    return ProxyServiceStatus(
+        pid: pid,
+        uptime: pid.flatMap { LaunchAgentManager.runningUptimeSeconds(pid: $0) }
+    )
+}
+
 @MainActor
 final class ProxyController: ObservableObject {
     @Published var isRunning: Bool = false
@@ -9,24 +22,33 @@ final class ProxyController: ObservableObject {
 
     let logStore = PersistentLogStore()
     private var runningPID: Int32?
+    private var statusRefreshTask: Task<Void, Never>?
+    private var startTask: Task<Void, Never>?
+    private var stopTask: Task<Void, Never>?
 
     func clearLog() {
         logStore.clearPersistentLog {}
     }
 
-    private func append(_ chunk: String) {
-        guard !chunk.isEmpty else { return }
-        logStore.append(chunk)
+    func refreshStatus() {
+        guard statusRefreshTask == nil else { return }
+        statusRefreshTask = Task { [weak self] in
+            let status = await Task.detached(priority: .utility) {
+                currentProxyServiceStatus()
+            }.value
+            guard let self else { return }
+            self.apply(status)
+            self.statusRefreshTask = nil
+        }
     }
 
-    func refreshStatus() {
-        let pid = LaunchAgentManager.runningPID()
+    private func apply(_ status: ProxyServiceStatus) {
+        let pid = status.pid
         isRunning = pid != nil
 
         if let pid {
             if runningPID != pid || runningSince == nil {
-                let uptime = LaunchAgentManager.runningUptimeSeconds(pid: pid)
-                runningSince = Date().addingTimeInterval(-(uptime ?? 0))
+                runningSince = Date().addingTimeInterval(-(status.uptime ?? 0))
             }
             runningPID = pid
         } else {
@@ -36,38 +58,56 @@ final class ProxyController: ObservableObject {
     }
 
     func start() {
-        refreshStatus()
+        guard startTask == nil else { return }
+        startTask = Task { [weak self, logStore] in
+            let status = await Task.detached(priority: .userInitiated) {
+                Self.startService(logStore: logStore)
+            }.value
+            guard let self else { return }
+            self.apply(status)
+            self.startTask = nil
+        }
+    }
 
+    private nonisolated static func startService(logStore: PersistentLogStore) -> ProxyServiceStatus {
         do {
             let report = try BundledRuntimeInstaller.installOrRepair()
-            append("—— 运行时检查：\(report.userMessage) ——\n")
+            logStore.append("—— 运行时检查：\(report.userMessage) ——\n")
         } catch {
-            append("运行时安装/修复失败: \(error.localizedDescription)\n")
+            logStore.append("运行时安装/修复失败: \(error.localizedDescription)\n")
         }
 
         guard BundledRuntimeInstaller.hasUsableDeepSeekAPIKey() else {
-            append("错误：未配置 DeepSeek API Key。请打开设置，填入 DEEPSEEK_API_KEY 并保存后再启动。\n")
-            return
+            logStore.append("错误：未配置 DeepSeek API Key。请打开设置，填入 DEEPSEEK_API_KEY 并保存后再启动。\n")
+            return currentProxyServiceStatus()
         }
 
         do {
             let syncReport = ClaudeDesktopConfigSync.syncCurrentDiskConfig()
-            append("—— Claude Desktop 配置：\(syncReport.userMessage) ——\n")
-            guard !isRunning else {
-                append("—— 常驻服务已在运行 ——\n")
-                return
+            logStore.append("—— Claude Desktop 配置：\(syncReport.userMessage) ——\n")
+            guard LaunchAgentManager.runningPID() == nil else {
+                logStore.append("—— 常驻服务已在运行 ——\n")
+                return currentProxyServiceStatus()
             }
             let message = try LaunchAgentManager.start()
-            append("—— \(message) ——\n")
-            refreshStatus()
+            logStore.append("—— \(message) ——\n")
         } catch {
-            append("启动失败: \(error.localizedDescription)\n")
+            logStore.append("启动失败: \(error.localizedDescription)\n")
         }
+        return currentProxyServiceStatus()
     }
 
     func stop() {
-        append("—— 正在停止常驻服务 ——\n")
-        append("—— \(LaunchAgentManager.stop()) ——\n")
-        refreshStatus()
+        guard stopTask == nil else { return }
+        stopTask = Task { [weak self, logStore] in
+            let status = await Task.detached(priority: .userInitiated) {
+                logStore.append("—— 正在停止常驻服务 ——\n")
+                logStore.append("—— \(LaunchAgentManager.stop()) ——\n")
+                return currentProxyServiceStatus()
+            }.value
+            guard let self else { return }
+            self.apply(status)
+            self.stopTask = nil
+        }
     }
 }

@@ -2,6 +2,58 @@ import Foundation
 
 private let gatewayEventPrefix = "CDSG_EVENT "
 
+private final class GatewayLogWriter {
+    static let shared = GatewayLogWriter()
+
+    private let lock = NSLock()
+    private var handle: FileHandle?
+    private var handlePath: String?
+
+    func append(_ line: String) {
+        guard let data = line.data(using: .utf8), !data.isEmpty else { return }
+        let logURL = gatewayLogURL()
+        lock.lock()
+        defer { lock.unlock() }
+
+        do {
+            let handle = try writeHandle(for: logURL)
+            try handle.seekToEnd()
+            try handle.write(contentsOf: data)
+        } catch {
+            closeHandle()
+            fputs(line, stderr)
+            fflush(stderr)
+        }
+    }
+
+    private func writeHandle(for logURL: URL) throws -> FileHandle {
+        if let handle, handlePath == logURL.path, FileManager.default.fileExists(atPath: logURL.path) {
+            return handle
+        }
+
+        closeHandle()
+        try FileManager.default.createDirectory(
+            at: logURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        if !FileManager.default.fileExists(atPath: logURL.path) {
+            FileManager.default.createFile(atPath: logURL.path, contents: nil)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: logURL.path)
+        }
+        let newHandle = try FileHandle(forWritingTo: logURL)
+        handle = newHandle
+        handlePath = logURL.path
+        return newHandle
+    }
+
+    private func closeHandle() {
+        try? handle?.close()
+        handle = nil
+        handlePath = nil
+    }
+}
+
 func logGatewayEvent(_ event: [String: Any]) {
     var payload = event
     payload["timestamp"] = ISO8601DateFormatter().string(from: Date())
@@ -16,27 +68,7 @@ func logGatewayEvent(_ event: [String: Any]) {
 }
 
 func appendGatewayLogLine(_ line: String) {
-    let logURL = gatewayLogURL()
-    do {
-        try FileManager.default.createDirectory(
-            at: logURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-        )
-        if !FileManager.default.fileExists(atPath: logURL.path) {
-            FileManager.default.createFile(atPath: logURL.path, contents: nil)
-            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: logURL.path)
-        }
-        let handle = try FileHandle(forWritingTo: logURL)
-        defer { try? handle.close() }
-        try handle.seekToEnd()
-        if let data = line.data(using: .utf8) {
-            try handle.write(contentsOf: data)
-        }
-    } catch {
-        fputs(line, stderr)
-        fflush(stderr)
-    }
+    GatewayLogWriter.shared.append(line)
 }
 
 func gatewayLogURL() -> URL {

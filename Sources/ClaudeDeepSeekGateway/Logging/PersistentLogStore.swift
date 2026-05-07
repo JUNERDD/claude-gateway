@@ -2,6 +2,17 @@ import Foundation
 
 // MARK: - 磁盘日志（完整历史仅在文件；界面只保留尾部以控内存）
 
+struct PersistentLogTailSignature: Equatable {
+    var fileSize: UInt64
+    var modificationTime: TimeInterval
+    var maxBytes: Int
+}
+
+struct PersistentLogTailRead {
+    var text: String
+    var signature: PersistentLogTailSignature
+}
+
 final class PersistentLogStore {
     let fileURL: URL
     private let queue = DispatchQueue(label: "local.zen.ClaudeDeepSeekGateway.log")
@@ -70,27 +81,55 @@ final class PersistentLogStore {
 
     /// 启动时把文件尾部载入界面（仅展示，不全读大文件）
     func readTail(maxBytes: Int = 512_000, completion: @escaping (String) -> Void) {
+        readTail(maxBytes: maxBytes, ifChangedFrom: nil) { read in
+            completion(read?.text ?? "")
+        }
+    }
+
+    /// 读取文件尾部；如果签名未变化则返回 nil，避免上层重复解析同一段日志。
+    func readTail(
+        maxBytes: Int = 512_000,
+        ifChangedFrom previousSignature: PersistentLogTailSignature?,
+        completion: @escaping (PersistentLogTailRead?) -> Void
+    ) {
         queue.async { [self] in
             guard let attrs = try? FileManager.default.attributesOfItem(atPath: self.fileURL.path),
-                let size = attrs[.size] as? NSNumber, size.intValue > 0
+                let sizeNumber = attrs[.size] as? NSNumber
             else {
-                DispatchQueue.main.async { completion("") }
+                let signature = PersistentLogTailSignature(fileSize: 0, modificationTime: 0, maxBytes: maxBytes)
+                DispatchQueue.main.async {
+                    completion(previousSignature == signature ? nil : PersistentLogTailRead(text: "", signature: signature))
+                }
+                return
+            }
+            let size = sizeNumber.uint64Value
+            let modified = (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+            let signature = PersistentLogTailSignature(fileSize: size, modificationTime: modified, maxBytes: maxBytes)
+            guard previousSignature != signature else {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
+            guard size > 0 else {
+                DispatchQueue.main.async { completion(PersistentLogTailRead(text: "", signature: signature)) }
                 return
             }
             guard let fh = try? FileHandle(forReadingFrom: self.fileURL) else {
-                DispatchQueue.main.async { completion("") }
+                DispatchQueue.main.async { completion(PersistentLogTailRead(text: "", signature: signature)) }
                 return
             }
             defer { try? fh.close() }
-            let len = size.intValue
-            let readLen = min(len, maxBytes)
+            let readLen = min(size, UInt64(maxBytes))
             do {
-                try fh.seek(toOffset: UInt64(len - readLen))
-                let data = try fh.read(upToCount: readLen) ?? Data()
+                try fh.seek(toOffset: size - readLen)
+                let data = try fh.read(upToCount: Int(readLen)) ?? Data()
                 let s = String(decoding: data, as: UTF8.self)
-                DispatchQueue.main.async { completion(s) }
+                DispatchQueue.main.async {
+                    completion(PersistentLogTailRead(text: s, signature: signature))
+                }
             } catch {
-                DispatchQueue.main.async { completion("") }
+                DispatchQueue.main.async {
+                    completion(PersistentLogTailRead(text: "", signature: signature))
+                }
             }
         }
     }

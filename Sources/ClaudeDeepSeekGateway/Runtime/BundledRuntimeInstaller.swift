@@ -123,13 +123,28 @@ enum BundledRuntimeInstaller {
     }
 
     private static func shouldCopy(source: URL, destination: URL) -> Bool {
-        guard FileManager.default.fileExists(atPath: destination.path),
-            let sourceData = try? Data(contentsOf: source),
-            let destinationData = try? Data(contentsOf: destination)
-        else {
-            return true
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: destination.path),
+            let sourceSize = try? source.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+            let destinationSize = try? destination.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+            sourceSize == destinationSize
+        else { return true }
+
+        guard let sourceHandle = try? FileHandle(forReadingFrom: source),
+            let destinationHandle = try? FileHandle(forReadingFrom: destination)
+        else { return true }
+        defer {
+            try? sourceHandle.close()
+            try? destinationHandle.close()
         }
-        return sourceData != destinationData
+
+        let chunkSize = 256 * 1024
+        while true {
+            let sourceData = (try? sourceHandle.read(upToCount: chunkSize)) ?? Data()
+            let destinationData = (try? destinationHandle.read(upToCount: chunkSize)) ?? Data()
+            if sourceData != destinationData { return true }
+            if sourceData.isEmpty { return false }
+        }
     }
 
     private static func ensureDefaultSettings(report: inout RuntimeInstallReport, runtimeURL: URL? = nil) throws {

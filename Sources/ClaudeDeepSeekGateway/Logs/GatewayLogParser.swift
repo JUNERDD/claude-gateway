@@ -4,32 +4,37 @@ enum GatewayLogParser {
     private static let structuredPrefix = "CDSG_EVENT "
 
     static func parse(_ text: String) -> [GatewayLogEvent] {
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        let parsed = lines.enumerated().compactMap { index, line -> GatewayLogEvent? in
+        let context = ParseContext()
+        var parsed: [GatewayLogEvent] = []
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        parsed.reserveCapacity(min(lines.count, 5_000))
+
+        for (index, line) in lines.enumerated() {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return nil }
+            guard !trimmed.isEmpty else { continue }
 
             if trimmed.hasPrefix(structuredPrefix) {
                 let jsonText = String(trimmed.dropFirst(structuredPrefix.count))
-                if let event = parseStructured(jsonText, fallbackID: "structured-\(index)") {
-                    return event
+                if let event = parseStructured(jsonText, fallbackID: "structured-\(index)", context: context) {
+                    parsed.append(event)
+                    continue
                 }
             }
 
-            return parsePlain(trimmed, index: index)
+            parsed.append(parsePlain(trimmed, index: index))
         }
 
-        return Array(parsed.suffix(5_000))
+        return Array(parsed.suffix(5_000)).map { $0.indexedForSearch() }
     }
 
-    private static func parseStructured(_ jsonText: String, fallbackID: String) -> GatewayLogEvent? {
+    private static func parseStructured(_ jsonText: String, fallbackID: String, context: ParseContext) -> GatewayLogEvent? {
         guard let data = jsonText.data(using: .utf8),
             let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else {
             return nil
         }
 
-        let timestamp = shortTimestamp(object["timestamp"] as? String)
+        let timestamp = shortTimestamp(object["timestamp"] as? String, context: context)
         let requestID = object["requestID"] as? String
         let id = requestID.map { "\(fallbackID)-\($0)-\(object["type"] as? String ?? "event")" } ?? fallbackID
         let type = object["type"] as? String ?? "event"
@@ -177,12 +182,10 @@ enum GatewayLogParser {
         }
     }
 
-    private static func shortTimestamp(_ value: String?) -> String {
+    private static func shortTimestamp(_ value: String?, context: ParseContext) -> String {
         guard let value, !value.isEmpty else { return "" }
-        if let date = ISO8601DateFormatter().date(from: value) {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "HH:mm:ss"
-            return formatter.string(from: date)
+        if let date = context.isoFormatter.date(from: value) {
+            return context.timeFormatter.string(from: date)
         }
         return String(value.suffix(8))
     }
@@ -190,5 +193,14 @@ enum GatewayLogParser {
     private static func shortRequestID(_ value: String?) -> String {
         guard let value, !value.isEmpty else { return "-" }
         return String(value.prefix(8))
+    }
+
+    private final class ParseContext {
+        let isoFormatter = ISO8601DateFormatter()
+        let timeFormatter: DateFormatter = {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "HH:mm:ss"
+            return formatter
+        }()
     }
 }

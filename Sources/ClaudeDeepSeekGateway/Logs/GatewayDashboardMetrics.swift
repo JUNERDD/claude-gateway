@@ -30,14 +30,42 @@ enum GatewayDashboardRange: String, CaseIterable, Hashable, Identifiable {
 @MainActor
 final class GatewayDashboardStore: ObservableObject {
     @Published private(set) var snapshot = GatewayDashboardSnapshot.empty(range: .oneMinute)
+    private var tailSignature: PersistentLogTailSignature?
+    private var reloadInFlight = false
+    private var reloadGeneration = 0
 
     func reload(from logStore: PersistentLogStore, range: GatewayDashboardRange) {
-        logStore.readTail(maxBytes: 5_000_000) { [weak self] tail in
-            self?.snapshot = GatewayDashboardSnapshot.make(from: tail, range: range, now: Date())
+        guard !reloadInFlight else { return }
+        reloadInFlight = true
+        logStore.readTail(maxBytes: 5_000_000, ifChangedFrom: tailSignature) { [weak self] read in
+            guard let self else { return }
+            guard let read else {
+                self.reloadInFlight = false
+                return
+            }
+
+            self.tailSignature = read.signature
+            self.reloadGeneration += 1
+            let generation = self.reloadGeneration
+            let now = Date()
+            Task.detached(priority: .utility) {
+                let snapshot = GatewayDashboardSnapshot.make(from: read.text, range: range, now: now)
+                await MainActor.run {
+                    guard self.reloadGeneration == generation else {
+                        self.reloadInFlight = false
+                        return
+                    }
+                    self.snapshot = snapshot
+                    self.reloadInFlight = false
+                }
+            }
         }
     }
 
     func clear(range: GatewayDashboardRange) {
+        tailSignature = nil
+        reloadGeneration += 1
+        reloadInFlight = false
         snapshot = .empty(range: range)
     }
 }
