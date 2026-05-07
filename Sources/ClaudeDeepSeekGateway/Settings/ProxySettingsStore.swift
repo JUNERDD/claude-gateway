@@ -1,6 +1,12 @@
 import Foundation
 import SwiftUI
 
+struct ProxySettingsSyncResult {
+    var runtimeReport: RuntimeInstallReport
+    var syncReport: ClaudeConfigSyncReport
+    var serviceMessage: String
+}
+
 @MainActor
 final class ProxySettingsStore: ObservableObject {
     @Published var host: String = ProxyDiskSettings.defaults.host
@@ -21,18 +27,39 @@ final class ProxySettingsStore: ObservableObject {
     @Published var runtimeStatusIsError: Bool = false
     @Published var claudeSyncStatusMessage: String = ""
     @Published var claudeSyncStatusIsError: Bool = false
+    @Published private(set) var isPersistingAndSyncing: Bool = false
 
     private let configURL: URL
     private let secretsURL: URL
+    private let persistAndSyncOperation: (ProxyDiskSettings, String) throws -> ProxySettingsSyncResult
     private var runtimeInstallTask: Task<Void, Never>?
     private var persistAndSyncTask: Task<Void, Never>?
     private var operationGeneration = 0
 
-    init() {
-        configURL = BundledRuntimeInstaller.settingsURL
-        secretsURL = BundledRuntimeInstaller.secretsURL
+    init(
+        configURL: URL = BundledRuntimeInstaller.settingsURL,
+        secretsURL: URL = BundledRuntimeInstaller.secretsURL,
+        installRuntimeOnInit: Bool = true,
+        persistAndSyncOperation: @escaping (ProxyDiskSettings, String) throws -> ProxySettingsSyncResult = ProxySettingsStore.defaultPersistAndSyncOperation
+    ) {
+        self.configURL = configURL
+        self.secretsURL = secretsURL
+        self.persistAndSyncOperation = persistAndSyncOperation
         load()
-        installBundledRuntime()
+        if installRuntimeOnInit {
+            installBundledRuntime()
+        }
+    }
+
+    private nonisolated static func defaultPersistAndSyncOperation(settings: ProxyDiskSettings, localGatewayKey: String) throws -> ProxySettingsSyncResult {
+        let runtimeReport = try BundledRuntimeInstaller.installOrRepair()
+        let syncReport = ClaudeDesktopConfigSync.sync(settings: settings, localGatewayKey: localGatewayKey)
+        let serviceMessage = try LaunchAgentManager.start()
+        return ProxySettingsSyncResult(
+            runtimeReport: runtimeReport,
+            syncReport: syncReport,
+            serviceMessage: serviceMessage
+        )
     }
 
     var configPathForDisplay: String {
@@ -125,35 +152,48 @@ final class ProxySettingsStore: ObservableObject {
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: secretsURL.path)
 
             let key = localGatewayKey
+            let operation = persistAndSyncOperation
             operationGeneration += 1
             let generation = operationGeneration
             persistAndSyncTask?.cancel()
+            isPersistingAndSyncing = true
             persistAndSyncTask = Task { [weak self] in
                 let result = await Task.detached(priority: .userInitiated) {
-                    let syncReport = ClaudeDesktopConfigSync.sync(settings: settings, localGatewayKey: key)
-                    let serviceMessage = try LaunchAgentManager.start()
-                    return (syncReport, serviceMessage)
+                    try operation(settings, key)
                 }.result
 
                 guard let self, self.operationGeneration == generation else { return }
+                defer {
+                    self.isPersistingAndSyncing = false
+                    self.persistAndSyncTask = nil
+                }
                 switch result {
-                case let .success((syncReport, serviceMessage)):
-                    self.statusMessage = "\(successPrefix)\(syncReport.userMessage) \(serviceMessage)"
+                case let .success(result):
+                    let runtimeReport = result.runtimeReport
+                    let syncReport = result.syncReport
+                    let serviceMessage = result.serviceMessage
+                    self.statusMessage = "\(successPrefix)\(runtimeReport.userMessage) \(syncReport.userMessage) \(serviceMessage)"
                     self.statusIsError = false
-                    self.claudeSyncStatusMessage = "\(syncReport.detailMessage)\nLaunchAgent:\n  \(serviceMessage)"
-                    self.claudeSyncStatusIsError = !syncReport.warnings.isEmpty
+                    self.claudeSyncStatusMessage = """
+                    Runtime:
+                      \(runtimeReport.userMessage)
+                    \(syncReport.detailMessage)
+                    LaunchAgent:
+                      \(serviceMessage)
+                    """
+                    self.claudeSyncStatusIsError = !runtimeReport.warnings.isEmpty || !syncReport.warnings.isEmpty
                 case let .failure(error):
                     self.statusMessage = "操作失败：\(error.localizedDescription)"
                     self.statusIsError = true
                     self.claudeSyncStatusMessage = self.statusMessage
                     self.claudeSyncStatusIsError = true
                 }
-                self.persistAndSyncTask = nil
             }
         } catch {
             operationGeneration += 1
             persistAndSyncTask?.cancel()
             persistAndSyncTask = nil
+            isPersistingAndSyncing = false
             statusMessage = "操作失败：\(error.localizedDescription)"
             statusIsError = true
             claudeSyncStatusMessage = statusMessage

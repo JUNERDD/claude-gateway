@@ -228,6 +228,15 @@ final class HTTPConnection {
         let requestID = UUID().uuidString
         let originalModel = payload["model"] as? String
 
+        if let probePayload = CoworkProbeResponse.payloadIfMatched(payload, requestID: requestID) {
+            writeLoggedJSON(status: 200, payload: probePayload, request: request, responseFields: [
+                "probe": "cowork_connectivity",
+                "inputTokens": 1,
+                "outputTokens": 1,
+            ])
+            return
+        }
+
         let attachmentBridgeResult = AnthropicImageAttachmentBridge().bridge(payload: payload, requestID: requestID)
         payload = attachmentBridgeResult.payload
         if attachmentBridgeResult.report.didBridgeImages {

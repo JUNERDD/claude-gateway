@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.0.14 - 2026-05-07
+
+### Added
+
+- Added a first-run onboarding sheet for setting credentials, syncing Claude clients, and starting the gateway.
+- Added Help menu access for reopening onboarding after the first run.
+- Added a local connectivity probe response for minimal non-streaming `.` requests.
+- Added Claude Desktop MCP config sync support for `claude_desktop_config.json`.
+- Added MIT License for open-source distribution.
+- Added public reporting guidance for rights, policy, platform, or compliance concerns.
+
+### Changed
+
+- Refined onboarding into a simple native macOS sheet without full-window visual effects.
+- Expanded README installation, setup, troubleshooting, privacy, and development documentation.
+- Included runtime repair status in the save/sync/start result.
+
+### Fixed
+
+- Prevented onboarding completion from triggering background dashboard layout churn through the main status banner.
+
 ## 1.0.13 - 2026-05-07
 
 ### Added

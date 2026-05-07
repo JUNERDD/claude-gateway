@@ -10,6 +10,7 @@ private enum MainWindowLayout {
 
 struct ContentView: View {
     @ObservedObject var settings: ProxySettingsStore
+    @ObservedObject var onboarding: OnboardingCoordinator
     @StateObject private var runner = ProxyController()
     @StateObject private var dashboard = GatewayDashboardStore()
     @Environment(\.openSettings) private var openSettings
@@ -21,6 +22,51 @@ struct ContentView: View {
     private let refreshTimer = Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()
 
     var body: some View {
+        mainContent
+        .frame(minWidth: 1120, minHeight: 760)
+        .onAppear {
+            guard !didAutoStart else { return }
+            didAutoStart = true
+            settings.load()
+            runner.refreshStatus()
+            dashboard.reload(from: runner.logStore, range: selectedRange)
+            if BundledRuntimeInstaller.hasUsableDeepSeekAPIKey() {
+                runner.start()
+                runner.refreshStatus()
+            }
+            onboarding.presentIfNeeded()
+        }
+        .onReceive(refreshTimer) { _ in
+            if onboarding.isPresented {
+                return
+            }
+            runner.refreshStatus()
+            dashboard.reload(from: runner.logStore, range: selectedRange)
+        }
+        .onChange(of: selectedRange) { _, range in
+            dashboard.reload(from: runner.logStore, range: range)
+        }
+        .sheet(isPresented: onboardingSheetBinding) {
+            OnboardingView(settings: settings, coordinator: onboarding) {
+                refreshGatewayState()
+            }
+        }
+    }
+
+    private var onboardingSheetBinding: Binding<Bool> {
+        Binding {
+            onboarding.isPresented
+        } set: { isPresented in
+            guard !isPresented else { return }
+            if onboarding.isInitialFlow {
+                onboarding.skipInitialFlow()
+            } else {
+                onboarding.dismissPresented()
+            }
+        }
+    }
+
+    private var mainContent: some View {
         NavigationSplitView {
             SidebarView(
                 selectedSection: $selectedSection,
@@ -90,30 +136,11 @@ struct ContentView: View {
                 }
                 .toolbarBackground(.hidden, for: .windowToolbar)
         }
-        .frame(minWidth: 1120, minHeight: 760)
-        .onAppear {
-            guard !didAutoStart else { return }
-            didAutoStart = true
-            settings.load()
-            runner.refreshStatus()
-            dashboard.reload(from: runner.logStore, range: selectedRange)
-            if BundledRuntimeInstaller.hasUsableDeepSeekAPIKey() {
-                runner.start()
-                runner.refreshStatus()
-            }
-        }
-        .onReceive(refreshTimer) { _ in
-            runner.refreshStatus()
-            dashboard.reload(from: runner.logStore, range: selectedRange)
-        }
-        .onChange(of: selectedRange) { _, range in
-            dashboard.reload(from: runner.logStore, range: range)
-        }
     }
 
     private var detailContent: some View {
         VStack(spacing: 0) {
-            if !settings.statusMessage.isEmpty {
+            if !settings.statusMessage.isEmpty, !onboarding.isPresented {
                 SettingsStatusBanner(settings: settings, recoverySection: statusRecoverySection) { section in
                     selectedSection = section
                 }
@@ -208,19 +235,22 @@ struct ContentView: View {
 
     private func syncClaude() {
         settings.syncClaudeDesktopConfig()
-        runner.refreshStatus()
-        dashboard.reload(from: runner.logStore, range: selectedRange)
+        refreshGatewayState()
     }
 
     private func reloadFromDisk() {
         settings.load()
-        runner.refreshStatus()
-        dashboard.reload(from: runner.logStore, range: selectedRange)
+        refreshGatewayState()
     }
 
     private func clearLogs() {
         runner.clearLog()
         dashboard.clear(range: selectedRange)
+    }
+
+    private func refreshGatewayState() {
+        runner.refreshStatus()
+        dashboard.reload(from: runner.logStore, range: selectedRange)
     }
 }
 

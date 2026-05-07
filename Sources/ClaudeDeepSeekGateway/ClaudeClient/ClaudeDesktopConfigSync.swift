@@ -4,6 +4,9 @@ struct ClaudeConfigSyncReport {
     var updated: [String] = []
     var created: [String] = []
     var unchanged: [String] = []
+    var updatedClaudeDesktopMCPConfig: [String] = []
+    var createdClaudeDesktopMCPConfig: [String] = []
+    var unchangedClaudeDesktopMCPConfig: [String] = []
     var updatedClaudeCodeSettings: [String] = []
     var createdClaudeCodeSettings: [String] = []
     var unchangedClaudeCodeSettings: [String] = []
@@ -16,17 +19,31 @@ struct ClaudeConfigSyncReport {
     var userMessage: String {
         var parts: [String] = []
         if !updated.isEmpty {
-            parts.append("已同步 \(updated.count) 个 Claude Desktop 配置。")
+            parts.append("已同步 \(updated.count) 个 Claude configLibrary 配置。")
         }
         if !created.isEmpty {
             parts.append("已创建 \(created.count) 个 Claude configLibrary 配置。")
         }
         if !unchanged.isEmpty, updated.isEmpty, created.isEmpty {
-            parts.append("\(unchanged.count) 个 Claude Desktop 配置已匹配。")
+            parts.append("\(unchanged.count) 个 Claude configLibrary 配置已匹配。")
+        }
+        if !updatedClaudeDesktopMCPConfig.isEmpty || !createdClaudeDesktopMCPConfig.isEmpty {
+            parts.append("已同步 Claude Desktop MCP 配置。")
+        } else if !unchangedClaudeDesktopMCPConfig.isEmpty,
+            updated.isEmpty,
+            created.isEmpty
+        {
+            parts.append("Claude Desktop MCP 配置已匹配。")
         }
         if !updatedClaudeCodeSettings.isEmpty || !createdClaudeCodeSettings.isEmpty {
             parts.append("已同步 Claude Code 配置。")
-        } else if !unchangedClaudeCodeSettings.isEmpty, updated.isEmpty, created.isEmpty, refreshedCaches.isEmpty {
+        } else if !unchangedClaudeCodeSettings.isEmpty,
+            updated.isEmpty,
+            created.isEmpty,
+            updatedClaudeDesktopMCPConfig.isEmpty,
+            createdClaudeDesktopMCPConfig.isEmpty,
+            refreshedCaches.isEmpty
+        {
             parts.append("Claude Code 配置已匹配。")
         }
         if !installedClaudeMCPServers.isEmpty {
@@ -34,6 +51,8 @@ struct ClaudeConfigSyncReport {
         } else if !unchangedClaudeMCPServers.isEmpty,
             updated.isEmpty,
             created.isEmpty,
+            updatedClaudeDesktopMCPConfig.isEmpty,
+            createdClaudeDesktopMCPConfig.isEmpty,
             updatedClaudeCodeSettings.isEmpty,
             createdClaudeCodeSettings.isEmpty,
             refreshedCaches.isEmpty
@@ -58,6 +77,9 @@ struct ClaudeConfigSyncReport {
         appendSection("已更新", updated, to: &lines)
         appendSection("已创建", created, to: &lines)
         appendSection("已匹配", unchanged, to: &lines)
+        appendSection("Claude Desktop MCP 已更新", updatedClaudeDesktopMCPConfig, to: &lines)
+        appendSection("Claude Desktop MCP 已创建", createdClaudeDesktopMCPConfig, to: &lines)
+        appendSection("Claude Desktop MCP 已匹配", unchangedClaudeDesktopMCPConfig, to: &lines)
         appendSection("Claude Code 已更新", updatedClaudeCodeSettings, to: &lines)
         appendSection("Claude Code 已创建", createdClaudeCodeSettings, to: &lines)
         appendSection("Claude Code 已匹配", unchangedClaudeCodeSettings, to: &lines)
@@ -82,6 +104,17 @@ enum ClaudeDesktopConfigSync {
     private struct ConfigLibraryLocation {
         var appName: String
         var libraryURL: URL
+        var canCreate: Bool
+    }
+
+    private struct ClaudeSupportRoot {
+        var appName: String
+        var rootURL: URL
+        var canCreate: Bool
+    }
+
+    private struct DesktopMCPConfigLocation {
+        var configURL: URL
         var canCreate: Bool
     }
 
@@ -125,6 +158,20 @@ enum ClaudeDesktopConfigSync {
                 )
             } catch {
                 report.warnings.append("\(url.lastPathComponent): \(error.localizedDescription)")
+            }
+        }
+
+        if let mcpServerConfig {
+            for location in targetClaudeDesktopMCPConfigURLs() {
+                do {
+                    try syncClaudeDesktopMCPConfig(
+                        at: location,
+                        mcpServerConfig: mcpServerConfig,
+                        report: &report
+                    )
+                } catch {
+                    report.warnings.append("\(location.lastPathComponent) 同步失败：\(error.localizedDescription)")
+                }
             }
         }
 
@@ -310,20 +357,13 @@ enum ClaudeDesktopConfigSync {
     }
 
     private static func configLibraryLocations() -> [ConfigLibraryLocation] {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support", isDirectory: true)
-        return [
+        claudeSupportRoots().map { root in
             ConfigLibraryLocation(
-                appName: "Claude-3p",
-                libraryURL: appSupport.appendingPathComponent("Claude-3p/configLibrary", isDirectory: true),
-                canCreate: true
-            ),
-            ConfigLibraryLocation(
-                appName: "Claude",
-                libraryURL: appSupport.appendingPathComponent("Claude/configLibrary", isDirectory: true),
-                canCreate: false
-            ),
-        ]
+                appName: root.appName,
+                libraryURL: root.rootURL.appendingPathComponent("configLibrary", isDirectory: true),
+                canCreate: root.canCreate
+            )
+        }
     }
 
     private static func discoverConfigURLs(in library: URL) -> [URL] {
@@ -445,6 +485,52 @@ enum ClaudeDesktopConfigSync {
         var mcpServers = object["mcpServers"] as? [String: Any] ?? [:]
         mcpServers["vision-provider"] = serverConfig
         object["mcpServers"] = mcpServers
+    }
+
+    static func syncClaudeDesktopMCPConfig(
+        at url: URL,
+        mcpServerConfig: [String: Any],
+        report: inout ClaudeConfigSyncReport
+    ) throws {
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+
+        var object: [String: Any] = [:]
+        var originalObject: [String: Any] = [:]
+        let existed = FileManager.default.fileExists(atPath: url.path)
+        if existed, let data = try? Data(contentsOf: url), !data.isEmpty {
+            guard let decoded = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw NSError(domain: "ClaudeDesktopConfigSync", code: 4, userInfo: [
+                    NSLocalizedDescriptionKey: "\(url.lastPathComponent) 不是 JSON object",
+                ])
+            }
+            object = decoded
+            originalObject = decoded
+        }
+
+        try mergeVisionMCPServerConfig(mcpServerConfig, into: &object)
+
+        if existed, try jsonData(object) == jsonData(originalObject) {
+            report.unchangedClaudeDesktopMCPConfig.append(url.path)
+            return
+        }
+
+        if existed {
+            let backupURL = backupURL(for: url)
+            try FileManager.default.copyItem(at: url, to: backupURL)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backupURL.path)
+            report.backups.append(backupURL.path)
+        }
+
+        try writeJSONObject(object, to: url)
+        if existed {
+            report.updatedClaudeDesktopMCPConfig.append(url.path)
+        } else {
+            report.createdClaudeDesktopMCPConfig.append(url.path)
+        }
     }
 
     private static func refreshGatewayModelCache(report: inout ClaudeConfigSyncReport) {
@@ -605,6 +691,91 @@ enum ClaudeDesktopConfigSync {
     private static func claudeCodeUserConfigURL() -> URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude.json")
+    }
+
+    static func targetClaudeDesktopMCPConfigURLs(
+        appSupportURL: URL? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [URL] {
+        if let override = environment["CLAUDE_DEEPSEEK_GATEWAY_CLAUDE_DESKTOP_CONFIG"],
+            !override.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+            return [URL(fileURLWithPath: expandTilde(override))]
+        }
+
+        let fm = FileManager.default
+        var result: [URL] = []
+        var seen = Set<String>()
+        for location in claudeDesktopMCPConfigLocations(appSupportURL: appSupportURL) {
+            let key = location.configURL.standardizedFileURL.path
+            guard !seen.contains(key) else { continue }
+            guard location.canCreate || fm.fileExists(atPath: location.configURL.path) else { continue }
+            seen.insert(key)
+            result.append(location.configURL)
+        }
+        return result
+    }
+
+    private static func claudeDesktopMCPConfigLocations(appSupportURL: URL?) -> [DesktopMCPConfigLocation] {
+        claudeSupportRoots(appSupportURL: appSupportURL).map { root in
+            DesktopMCPConfigLocation(
+                configURL: root.rootURL.appendingPathComponent("claude_desktop_config.json"),
+                canCreate: root.canCreate
+            )
+        }
+    }
+
+    private static func claudeSupportRoots(appSupportURL: URL? = nil) -> [ClaudeSupportRoot] {
+        let fm = FileManager.default
+        let appSupport = appSupportURL ?? fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support", isDirectory: true)
+
+        var roots: [ClaudeSupportRoot] = []
+        var seen = Set<String>()
+
+        func appendRoot(_ url: URL, canCreate: Bool) {
+            let key = url.standardizedFileURL.path
+            guard !seen.contains(key) else { return }
+            seen.insert(key)
+            roots.append(ClaudeSupportRoot(appName: url.lastPathComponent, rootURL: url, canCreate: canCreate))
+        }
+
+        let entries = (try? fm.contentsOfDirectory(
+            at: appSupport,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+
+        for entry in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+            let values = try? entry.resourceValues(forKeys: [.isDirectoryKey])
+            guard values?.isDirectory == true else { continue }
+
+            let name = entry.lastPathComponent
+            let desktopConfigURL = entry.appendingPathComponent("claude_desktop_config.json")
+            let configLibraryURL = entry.appendingPathComponent("configLibrary", isDirectory: true)
+            var isConfigLibraryDirectory: ObjCBool = false
+            let hasDesktopConfig = fm.fileExists(atPath: desktopConfigURL.path)
+            let hasConfigLibrary = fm.fileExists(atPath: configLibraryURL.path, isDirectory: &isConfigLibraryDirectory)
+                && isConfigLibraryDirectory.boolValue
+            let looksLikeClaudeRoot = name == "Claude" || name.hasPrefix("Claude-")
+
+            guard looksLikeClaudeRoot || hasDesktopConfig || hasConfigLibrary else { continue }
+            appendRoot(entry, canCreate: name != "Claude")
+        }
+
+        if !roots.contains(where: { $0.appName != "Claude" }) {
+            appendRoot(
+                appSupport.appendingPathComponent("Claude-3p", isDirectory: true),
+                canCreate: true
+            )
+        }
+
+        return roots.sorted { lhs, rhs in
+            if (lhs.appName == "Claude") != (rhs.appName == "Claude") {
+                return lhs.appName != "Claude"
+            }
+            return lhs.appName < rhs.appName
+        }
     }
 
     private static func normalizedClaudeCodeModel(_ model: String) -> String? {
