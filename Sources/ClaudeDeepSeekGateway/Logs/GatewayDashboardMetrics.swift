@@ -31,29 +31,40 @@ enum GatewayDashboardRange: String, CaseIterable, Hashable, Identifiable {
 final class GatewayDashboardStore: ObservableObject {
     @Published private(set) var snapshot = GatewayDashboardSnapshot.empty(range: .oneMinute)
     private var tailSignature: PersistentLogTailSignature?
+    private var cachedRecords: [GatewayMetricRecord] = []
     private var reloadInFlight = false
     private var reloadGeneration = 0
+    private let nowProvider: () -> Date
+
+    init(now: @escaping () -> Date = Date.init) {
+        self.nowProvider = now
+    }
 
     func reload(from logStore: PersistentLogStore, range: GatewayDashboardRange) {
         guard !reloadInFlight else { return }
         reloadInFlight = true
         logStore.readTail(maxBytes: 5_000_000, ifChangedFrom: tailSignature) { [weak self] read in
             guard let self else { return }
-            guard let read else {
-                self.reloadInFlight = false
-                return
-            }
-
-            self.tailSignature = read.signature
             self.reloadGeneration += 1
             let generation = self.reloadGeneration
-            let now = Date()
+            let now = self.nowProvider()
+            let cachedRecords = self.cachedRecords
             Task.detached(priority: .utility) {
-                let snapshot = GatewayDashboardSnapshot.make(from: read.text, range: range, now: now)
+                let records: [GatewayMetricRecord]
+                if let read {
+                    records = GatewayMetricsParser.records(from: read.text)
+                } else {
+                    records = cachedRecords
+                }
+                let snapshot = GatewayDashboardSnapshot.make(from: records, range: range, now: now)
                 await MainActor.run {
                     guard self.reloadGeneration == generation else {
                         self.reloadInFlight = false
                         return
+                    }
+                    if let read {
+                        self.tailSignature = read.signature
+                        self.cachedRecords = records
                     }
                     self.snapshot = snapshot
                     self.reloadInFlight = false
@@ -64,6 +75,7 @@ final class GatewayDashboardStore: ObservableObject {
 
     func clear(range: GatewayDashboardRange) {
         tailSignature = nil
+        cachedRecords = []
         reloadGeneration += 1
         reloadInFlight = false
         snapshot = .empty(range: range)
@@ -116,7 +128,10 @@ struct GatewayDashboardSnapshot {
     }
 
     static func make(from logText: String, range: GatewayDashboardRange, now: Date) -> GatewayDashboardSnapshot {
-        let records = GatewayMetricsParser.records(from: logText)
+        make(from: GatewayMetricsParser.records(from: logText), range: range, now: now)
+    }
+
+    static func make(from records: [GatewayMetricRecord], range: GatewayDashboardRange, now: Date) -> GatewayDashboardSnapshot {
         let currentStart = now.addingTimeInterval(-range.duration)
         let previousStart = now.addingTimeInterval(-range.duration * 2)
 

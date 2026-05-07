@@ -4,6 +4,14 @@
 xcuserdata/
 DerivedData/
 dist/
+tmp/
+
+# Website
+site/node_modules/
+site/.next/
+site/out/
+site/.vercel/
+site/coverage/
 
 # Local app/config/runtime output
 *.log
@@ -12,4 +20,3 @@ dist/
 
 # Secrets should only live in ~/.config/claude-deepseek-gateway.
 secrets.env
-

@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.0.15 - 2026-05-08
+
+### Added
+
+- Added the Vercel-ready public website for Claude DeepSeek Gateway.
+- Added CI coverage for website linting and production builds.
+
+### Changed
+
+- Release packaging now creates and uploads a stable `ClaudeDeepSeekGateway-latest.dmg` asset.
+- Dashboard metrics now reuse cached log records so rolling chart windows refresh even when the log tail is unchanged.
+
+### Fixed
+
+- Corrected website setup copy to use the default `127.0.0.1:4000` endpoint and macOS 14.4 minimum.
+
 ## 1.0.14 - 2026-05-07
 
 ### Added

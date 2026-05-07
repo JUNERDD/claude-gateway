@@ -70,7 +70,59 @@ final class GatewayDashboardSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.issueRows.map(\.id), ["current-error"])
     }
 
+    @MainActor
+    func testDashboardStoreRecomputesChartWhenLogTailIsUnchanged() async throws {
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ClaudeDeepSeekGatewayTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+
+        let logURL = tempDirectory.appendingPathComponent("proxy.log")
+        let logText = event([
+            "type": "gateway_request",
+            "timestamp": "2026-05-07T09:59:50Z",
+            "requestID": "rolling-request",
+            "method": "GET",
+            "path": "/v1/models",
+        ])
+        try Data(logText.utf8).write(to: logURL)
+
+        var now = try XCTUnwrap(Self.isoFormatter.date(from: "2026-05-07T10:00:00Z"))
+        let logStore = PersistentLogStore(fileURL: logURL)
+        let dashboard = GatewayDashboardStore(now: { now })
+
+        dashboard.reload(from: logStore, range: .oneMinute)
+        try await waitForDashboard(dashboard) { snapshot in
+            snapshot.generatedAt == now && snapshot.totalRequests == 1
+        }
+        let initialBuckets = dashboard.snapshot.chartBuckets
+
+        now = try XCTUnwrap(Self.isoFormatter.date(from: "2026-05-07T10:00:06Z"))
+        dashboard.reload(from: logStore, range: .oneMinute)
+        try await waitForDashboard(dashboard) { snapshot in
+            snapshot.generatedAt == now
+        }
+
+        XCTAssertEqual(dashboard.snapshot.totalRequests, 1)
+        XCTAssertNotEqual(dashboard.snapshot.chartBuckets, initialBuckets)
+        XCTAssertEqual(dashboard.snapshot.chartBuckets.reduce(0, +), 1)
+    }
+
     private static let isoFormatter = ISO8601DateFormatter()
+
+    @MainActor
+    private func waitForDashboard(
+        _ dashboard: GatewayDashboardStore,
+        matching predicate: (GatewayDashboardSnapshot) -> Bool
+    ) async throws {
+        for _ in 0..<80 {
+            if predicate(dashboard.snapshot) {
+                return
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTFail("Timed out waiting for dashboard snapshot update")
+    }
 
     private func event(_ object: [String: Any]) -> String {
         let data = try! JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])

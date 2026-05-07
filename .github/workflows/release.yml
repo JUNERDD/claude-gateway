@@ -38,11 +38,12 @@ jobs:
           VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Info.plist)
           TAG="${GITHUB_REF_NAME}"
           DMG="dist/ClaudeDeepSeekGateway-${VERSION}.dmg"
+          LATEST_DMG="dist/ClaudeDeepSeekGateway-latest.dmg"
           TITLE="Claude DeepSeek Gateway ${VERSION}"
           NOTES="Automated release for ${TAG}."
 
           if gh release view "${TAG}" >/dev/null 2>&1; then
-            gh release upload "${TAG}" "${DMG}" --clobber
+            gh release upload "${TAG}" "${DMG}" "${LATEST_DMG}" --clobber
           else
-            gh release create "${TAG}" "${DMG}" --title "${TITLE}" --notes "${NOTES}"
+            gh release create "${TAG}" "${DMG}" "${LATEST_DMG}" --title "${TITLE}" --notes "${NOTES}"
           fi

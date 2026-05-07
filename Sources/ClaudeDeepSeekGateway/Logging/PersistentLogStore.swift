@@ -18,14 +18,22 @@ final class PersistentLogStore {
     private let queue = DispatchQueue(label: "local.zen.ClaudeDeepSeekGateway.log")
     private var writeHandle: FileHandle?
 
-    init() {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support", isDirectory: true)
-        let dir = base.appendingPathComponent("ClaudeDeepSeekGateway", isDirectory: true)
+    init(fileURL overrideFileURL: URL? = nil) {
+        let fileURL: URL
+        if let overrideFileURL {
+            fileURL = overrideFileURL
+        } else {
+            let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+                ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support", isDirectory: true)
+            fileURL = base
+                .appendingPathComponent("ClaudeDeepSeekGateway", isDirectory: true)
+                .appendingPathComponent("proxy.log")
+        }
+        let dir = fileURL.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [
             .posixPermissions: 0o700,
         ])
-        fileURL = dir.appendingPathComponent("proxy.log")
+        self.fileURL = fileURL
     }
 
     var pathForDisplay: String {

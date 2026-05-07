@@ -6,6 +6,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${ROOT}/Info.plist")"
 DIST_DIR="${ROOT}/dist"
 DMG="${DIST_DIR}/ClaudeDeepSeekGateway-${VERSION}.dmg"
+LATEST_DMG="${DIST_DIR}/ClaudeDeepSeekGateway-latest.dmg"
 RW_DMG="${DIST_DIR}/ClaudeDeepSeekGateway-${VERSION}-rw.dmg"
 VOLNAME="Claude DeepSeek Gateway"
 ARCH="$(uname -m)"
@@ -120,4 +121,6 @@ hdiutil convert "$RW_DMG" \
   -o "$DMG" >/dev/null
 
 hdiutil verify "$DMG" >/dev/null
+cp "$DMG" "$LATEST_DMG"
 echo "DMG created: $DMG"
+echo "DMG latest alias created: $LATEST_DMG"
