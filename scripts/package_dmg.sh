@@ -77,7 +77,7 @@ if [[ ! -d "$MOUNT_DIR" ]]; then
 fi
 ATTACHED=1
 
-osascript <<APPLESCRIPT
+if ! osascript <<APPLESCRIPT
 tell application "Finder"
   tell disk "$VOLNAME"
     open
@@ -99,6 +99,13 @@ tell application "Finder"
   end tell
 end tell
 APPLESCRIPT
+then
+  if [[ "${CI:-}" == "true" ]]; then
+    echo "Finder DMG layout automation is unavailable in CI; continuing with the default volume layout." >&2
+  else
+    exit 1
+  fi
+fi
 
 rm -rf "$MOUNT_DIR/.fseventsd" "$MOUNT_DIR/.Trashes"
 sync

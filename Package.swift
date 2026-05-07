@@ -17,5 +17,10 @@ let package = Package(
             name: "DeepSeekAliasProxy",
             path: "Sources/DeepSeekAliasProxy"
         ),
+        .testTarget(
+            name: "ClaudeDeepSeekGatewayTests",
+            dependencies: ["ClaudeDeepSeekGateway"],
+            path: "Tests/ClaudeDeepSeekGatewayTests"
+        ),
     ]
 )

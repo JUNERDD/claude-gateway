@@ -82,6 +82,11 @@ final class ProxySettingsStore: ObservableObject {
         persistSettingsAndSync(successPrefix: "已同步 Claude Desktop 配置。")
     }
 
+    func dismissStatusMessage() {
+        statusMessage = ""
+        statusIsError = false
+    }
+
     private func persistSettingsAndSync(successPrefix: String) {
         do {
             if localGatewayKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

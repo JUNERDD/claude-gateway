@@ -24,7 +24,7 @@ struct ContentView: View {
             )
             .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 280)
         } detail: {
-            detailView
+            detailContent
                 .navigationTitle(selectedSection.title)
                 .toolbar {
                     ToolbarItemGroup(placement: .primaryAction) {
@@ -102,6 +102,25 @@ struct ContentView: View {
         }
     }
 
+    private var detailContent: some View {
+        VStack(spacing: 0) {
+            if !settings.statusMessage.isEmpty {
+                SettingsStatusBanner(settings: settings, recoverySection: statusRecoverySection) { section in
+                    selectedSection = section
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
+            detailView
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .animation(.easeInOut(duration: 0.18), value: settings.statusMessage)
+    }
+
     @ViewBuilder
     private var detailView: some View {
         switch selectedSection {
@@ -132,6 +151,22 @@ struct ContentView: View {
         case .runtime:
             RuntimePage(settings: settings)
         }
+    }
+
+    private var statusRecoverySection: GatewaySection? {
+        guard settings.statusIsError else { return nil }
+
+        let message = settings.statusMessage.lowercased()
+        if message.contains("deepseek api key") || message.contains("local gateway key") || message.contains("密钥") {
+            return .credentials
+        }
+        if message.contains("endpoint") || message.contains("url") || message.contains("端口") || message.contains("监听地址") {
+            return .endpoint
+        }
+        if message.contains("model") || message.contains("模型") {
+            return .models
+        }
+        return nil
     }
 
     private func startGateway() {
@@ -364,8 +399,6 @@ private struct OverviewPage: View {
                 RequestTable(rows: snapshot.recentRequests, compact: true)
                     .frame(minHeight: 230)
             }
-
-            SettingsStatusBanner(settings: settings)
         }
     }
 }
@@ -712,8 +745,6 @@ private struct EndpointPage: View {
                     .keyboardShortcut(.defaultAction)
                 }
             }
-
-            SettingsStatusBanner(settings: settings)
         }
     }
 }
@@ -792,8 +823,6 @@ private struct ModelsPage: View {
                     .keyboardShortcut(.defaultAction)
                 }
             }
-
-            SettingsStatusBanner(settings: settings)
         }
     }
 
@@ -862,8 +891,6 @@ private struct CredentialsPage: View {
                     .keyboardShortcut(.defaultAction)
                 }
             }
-
-            SettingsStatusBanner(settings: settings)
         }
     }
 }
@@ -1335,11 +1362,73 @@ private struct RangePicker: View {
 
 private struct SettingsStatusBanner: View {
     @ObservedObject var settings: ProxySettingsStore
+    var recoverySection: GatewaySection?
+    var openRecoverySection: (GatewaySection) -> Void
 
     var body: some View {
-        if !settings.statusMessage.isEmpty {
-            InlineStatus(message: settings.statusMessage, isError: settings.statusIsError)
+        HStack(alignment: .center, spacing: 14) {
+            Image(systemName: settings.statusIsError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(tint)
+                .frame(width: 28, height: 28)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.headline)
+                Text(displayMessage)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 16)
+
+            if let recoverySection {
+                Button {
+                    openRecoverySection(recoverySection)
+                } label: {
+                    Label("Open \(recoverySection.title)", systemImage: "arrow.right.circle")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+            }
+
+            Button {
+                settings.dismissStatusMessage()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.body.weight(.semibold))
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .help("Dismiss")
+            .accessibilityLabel("Dismiss")
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(tint.opacity(settings.statusIsError ? 0.16 : 0.12), in: RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(tint.opacity(settings.statusIsError ? 0.55 : 0.35), lineWidth: 1)
+        }
+    }
+
+    private var title: String {
+        settings.statusIsError ? "Action Required" : "Settings Updated"
+    }
+
+    private var displayMessage: String {
+        let message = settings.statusMessage
+        for prefix in ["操作失败：", "操作失败: "] where message.hasPrefix(prefix) {
+            return String(message.dropFirst(prefix.count))
+        }
+        return message
+    }
+
+    private var tint: Color {
+        settings.statusIsError ? .red : .green
     }
 }
 
@@ -1351,7 +1440,7 @@ private struct InlineStatus: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                .foregroundStyle(isError ? .orange : .green)
+                .foregroundStyle(tint)
             Text(message)
                 .font(monospaced ? .system(.caption, design: .monospaced) : .callout)
                 .textSelection(.enabled)
@@ -1359,7 +1448,15 @@ private struct InlineStatus: View {
             Spacer()
         }
         .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .background(tint.opacity(isError ? 0.14 : 0.1), in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(tint.opacity(isError ? 0.45 : 0.3), lineWidth: 1)
+        }
+    }
+
+    private var tint: Color {
+        isError ? .red : .green
     }
 }
 
