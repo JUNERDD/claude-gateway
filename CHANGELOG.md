@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.10 - 2026-05-07
+
+### Changed
+
+- Centered empty states inside dashboard cards and request tables.
+- Reduced empty-state title size so empty cards read as supporting states instead of page-level headings.
+
 ## 1.0.9 - 2026-05-07
 
 ### Added

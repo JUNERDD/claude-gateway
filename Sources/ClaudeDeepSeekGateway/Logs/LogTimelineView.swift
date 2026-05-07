@@ -163,17 +163,25 @@ private struct LogEmptyState: View {
     var message: String
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 10) {
             Image(systemName: symbol)
-                .font(.system(size: 30))
+                .font(.system(size: 30, weight: .regular))
+                .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(.secondary)
+
             Text(title)
                 .font(.headline)
+                .foregroundStyle(.primary)
+
             Text(message)
-                .font(.caption)
+                .font(.callout)
                 .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .lineLimit(3)
+                .frame(maxWidth: 420)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 }
 

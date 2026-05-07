@@ -1004,11 +1004,12 @@ private struct RequestRateChart: View {
                     AxisMarks(position: .leading)
                 }
             } else {
-                ContentUnavailableView(
-                    "No Requests",
+                CompactEmptyState(
+                    title: "No Requests",
                     systemImage: "chart.xyaxis.line",
-                    description: Text("No traffic was recorded in the selected range.")
+                    description: "No traffic was recorded in the selected range."
                 )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             }
         }
     }
@@ -1029,11 +1030,12 @@ private struct RequestTable: View {
 
     var body: some View {
         if rows.isEmpty {
-            ContentUnavailableView(
-                emptyTitle,
+            CompactEmptyState(
+                title: emptyTitle,
                 systemImage: "tray",
-                description: Text(emptyDescription)
+                description: emptyDescription
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         } else {
             Table(rows, selection: $selectedIDs) {
                 commonColumns
@@ -1046,7 +1048,11 @@ private struct RequestTable: View {
                 if let selectedRow {
                     RequestInspector(row: selectedRow)
                 } else {
-                    ContentUnavailableView("No Request Selected", systemImage: "sidebar.trailing")
+                    CompactEmptyState(
+                        title: "No Request Selected",
+                        systemImage: "sidebar.trailing",
+                        description: "Select a request to inspect its details."
+                    )
                 }
             }
         }
@@ -1111,6 +1117,34 @@ private struct RequestInspector: View {
         }
         .formStyle(.grouped)
         .inspectorColumnWidth(min: 260, ideal: 300, max: 360)
+    }
+}
+
+private struct CompactEmptyState: View {
+    var title: String
+    var systemImage: String
+    var description: String
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: systemImage)
+                .font(.system(size: 30, weight: .regular))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.secondary)
+
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(.primary)
+
+            Text(description)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .lineLimit(3)
+                .frame(maxWidth: 420)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 }
 
