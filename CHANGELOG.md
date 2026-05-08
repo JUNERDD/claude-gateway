@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.0.16 - 2026-05-08
+
+### Added
+
+- Added menu bar controls for gateway status, start/stop actions, page shortcuts, Settings, and Quit.
+- Added configurable system prompt prefix/suffix injection with token estimate coverage.
+
+### Changed
+
+- Kept the macOS app alive when the main window closes and reopened the existing window from the Dock or menu bar.
+- Redesigned the public website header, route diagram, and setup sections.
+
+### Fixed
+
+- Escaped the setup terminal copy so the website passes strict linting.
+
 ## 1.0.15 - 2026-05-08
 
 ### Added
