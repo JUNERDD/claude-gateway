@@ -2,30 +2,31 @@
 import PackageDescription
 
 let package = Package(
-    name: "ClaudeDeepSeekGateway",
+    name: "ClaudeGateway",
     platforms: [.macOS("14.4")],
     products: [
-        .executable(name: "ClaudeDeepSeekGateway", targets: ["ClaudeDeepSeekGateway"]),
-        .executable(name: "DeepSeekAliasProxy", targets: ["DeepSeekAliasProxy"]),
+        .executable(name: "ClaudeGateway", targets: ["ClaudeGateway"]),
+        .executable(name: "GatewayProxy", targets: ["GatewayProxy"]),
     ],
     targets: [
         .target(
-            name: "DeepSeekAliasProxyCore",
-            path: "Sources/DeepSeekAliasProxyCore"
+            name: "GatewayProxyCore",
+            path: "Sources/GatewayProxyCore"
         ),
         .executableTarget(
-            name: "ClaudeDeepSeekGateway",
-            path: "Sources/ClaudeDeepSeekGateway"
+            name: "ClaudeGateway",
+            dependencies: ["GatewayProxyCore"],
+            path: "Sources/ClaudeGateway"
         ),
         .executableTarget(
-            name: "DeepSeekAliasProxy",
-            dependencies: ["DeepSeekAliasProxyCore"],
-            path: "Sources/DeepSeekAliasProxy"
+            name: "GatewayProxy",
+            dependencies: ["GatewayProxyCore"],
+            path: "Sources/GatewayProxy"
         ),
         .testTarget(
-            name: "ClaudeDeepSeekGatewayTests",
-            dependencies: ["ClaudeDeepSeekGateway", "DeepSeekAliasProxy", "DeepSeekAliasProxyCore"],
-            path: "Tests/ClaudeDeepSeekGatewayTests"
+            name: "ClaudeGatewayTests",
+            dependencies: ["ClaudeGateway", "GatewayProxy", "GatewayProxyCore"],
+            path: "Tests/ClaudeGatewayTests"
         ),
     ]
 )

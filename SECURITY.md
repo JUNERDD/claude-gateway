@@ -1,6 +1,6 @@
 # Reporting Concerns
 
-Claude DeepSeek Gateway is open source under the MIT License.
+Claude Gateway is open source under the MIT License.
 
 If you believe this project violates any rights, policy, platform terms, or applicable rules, contact `junerdduser@gmail.com`. I will review the report and address valid concerns.
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""生成 Claude DeepSeek Gateway 的 AppIcon.icns（依赖 Pillow）。"""
+"""生成 Claude Gateway 的 AppIcon.icns（依赖 Pillow）。"""
 
 from __future__ import annotations
 

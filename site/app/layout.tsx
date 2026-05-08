@@ -1,22 +1,24 @@
 import type { Metadata } from "next";
 import "./globals.css";
 
-const siteUrl = new URL("https://claude-deepseek-gateway.vercel.app");
+const siteUrl = new URL("https://claude-gateway.vercel.app");
 
 export const metadata: Metadata = {
   metadataBase: siteUrl,
-  title: "Claude DeepSeek Gateway — Local macOS proxy for DeepSeek",
+  title: "Claude Gateway — Local provider routing for Claude Desktop and Claude Code",
   description:
-    "A native macOS gateway that routes Claude Desktop and Claude Code requests to DeepSeek through a local Anthropic-compatible endpoint. Open source, local first, zero telemetry.",
-  applicationName: "Claude DeepSeek Gateway",
+    "A native macOS gateway that routes Claude Desktop and Claude Code through local provider configuration, model aliases, secrets, logs, and sync.",
+  applicationName: "Claude Gateway",
   keywords: [
     "Claude Desktop",
     "Claude Code",
-    "DeepSeek",
+    "Claude Gateway",
+    "Anthropic-compatible providers",
     "Anthropic compatible",
     "macOS gateway",
     "local proxy",
-    "API cost savings",
+    "model routing",
+    "custom AI providers",
   ],
   authors: [{ name: "JUNERDD", url: "https://github.com/JUNERDD" }],
   creator: "JUNERDD",
@@ -28,26 +30,26 @@ export const metadata: Metadata = {
     canonical: "/",
   },
   openGraph: {
-    title: "Claude DeepSeek Gateway — Local macOS proxy for DeepSeek",
+    title: "Claude Gateway — Local provider routing for Claude Desktop and Claude Code",
     description:
-      "Route Claude Desktop and Claude Code to DeepSeek through a local Anthropic-compatible endpoint. Open source, local first, zero telemetry.",
+      "Route Claude Desktop and Claude Code through local provider configuration, model aliases, secrets, logs, and sync.",
     url: "/",
     type: "website",
-    siteName: "Claude DeepSeek Gateway",
+    siteName: "Claude Gateway",
     images: [
       {
         url: "/app-icon.png",
         width: 1024,
         height: 1024,
-        alt: "Claude DeepSeek Gateway app icon",
+        alt: "Claude Gateway app icon",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Claude DeepSeek Gateway — Local macOS proxy for DeepSeek",
+    title: "Claude Gateway — Local provider routing for Claude Desktop and Claude Code",
     description:
-      "Route Claude Desktop and Claude Code to DeepSeek through a local Anthropic-compatible endpoint. Open source, local first, zero telemetry.",
+      "Route Claude Desktop and Claude Code through local provider configuration, model aliases, secrets, logs, and sync.",
     images: ["/app-icon.png"],
   },
 };

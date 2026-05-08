@@ -110,7 +110,7 @@ def vision_tool_schema() -> dict:
         "name": "vision_describe",
         "description": (
             "Describe, OCR, or extract content from a local image path through the local "
-            "Claude DeepSeek Gateway vision provider. Use this before answering questions "
+            "Claude Gateway vision provider. Use this before answering questions "
             "about gateway-saved image attachments."
         ),
         "inputSchema": {
@@ -189,7 +189,7 @@ def call_tool(params: dict) -> dict:
 
 def post_gateway_json(path: str, payload: dict) -> dict:
     base_url = (
-        os.getenv("CLAUDE_DEEPSEEK_GATEWAY_URL")
+        os.getenv("CLAUDE_GATEWAY_URL")
         or os.getenv("VISION_GATEWAY_URL")
         or "http://127.0.0.1:4000"
     ).rstrip("/")

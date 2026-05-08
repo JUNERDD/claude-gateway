@@ -5,14 +5,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${ROOT}/Info.plist")"
 DIST_DIR="${ROOT}/dist"
-DMG="${DIST_DIR}/ClaudeDeepSeekGateway-${VERSION}.dmg"
-LATEST_DMG="${DIST_DIR}/ClaudeDeepSeekGateway-latest.dmg"
-RW_DMG="${DIST_DIR}/ClaudeDeepSeekGateway-${VERSION}-rw.dmg"
-VOLNAME="Claude DeepSeek Gateway"
+DMG="${DIST_DIR}/ClaudeGateway-${VERSION}.dmg"
+LATEST_DMG="${DIST_DIR}/ClaudeGateway-latest.dmg"
+RW_DMG="${DIST_DIR}/ClaudeGateway-${VERSION}-rw.dmg"
+VOLNAME="Claude Gateway"
 ARCH="$(uname -m)"
 OUTDIR="${ROOT}/.build/${ARCH}-apple-macosx/release"
-BIN="${OUTDIR}/ClaudeDeepSeekGateway"
-PROXY_BIN="${OUTDIR}/DeepSeekAliasProxy"
+BIN="${OUTDIR}/ClaudeGateway"
+PROXY_BIN="${OUTDIR}/GatewayProxy"
 BACKGROUND_SRC="${ROOT}/Resources/DMG/background.png"
 
 rm -rf "$DIST_DIR"
@@ -30,7 +30,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-APP_STAGE="${STAGE}/Claude DeepSeek Gateway.app"
+APP_STAGE="${STAGE}/Claude Gateway.app"
 
 (cd "$ROOT" && swift build -c release)
 test -x "$BIN"
@@ -38,8 +38,8 @@ test -x "$PROXY_BIN"
 test -f "$BACKGROUND_SRC"
 
 mkdir -p "$APP_STAGE/Contents/MacOS" "$APP_STAGE/Contents/Resources"
-cp "$BIN" "$APP_STAGE/Contents/MacOS/ClaudeDeepSeekGateway"
-chmod +x "$APP_STAGE/Contents/MacOS/ClaudeDeepSeekGateway"
+cp "$BIN" "$APP_STAGE/Contents/MacOS/ClaudeGateway"
+chmod +x "$APP_STAGE/Contents/MacOS/ClaudeGateway"
 cp "$ROOT/Info.plist" "$APP_STAGE/Contents/Info.plist"
 printf 'APPL????' > "$APP_STAGE/Contents/PkgInfo"
 
@@ -49,9 +49,9 @@ fi
 cp "$ROOT/Resources/AppIcon.icns" "$APP_STAGE/Contents/Resources/AppIcon.icns"
 cp "$BACKGROUND_SRC" "$APP_STAGE/Contents/Resources/DmgBackground.png"
 cp -R "$ROOT/Resources/Runtime" "$APP_STAGE/Contents/Resources/Runtime"
-cp "$PROXY_BIN" "$APP_STAGE/Contents/Resources/Runtime/deepseek_anthropic_alias_proxy"
-chmod +x "$APP_STAGE/Contents/Resources/Runtime"/claude-deepseek-gateway-*.sh
-chmod +x "$APP_STAGE/Contents/Resources/Runtime/deepseek_anthropic_alias_proxy"
+cp "$PROXY_BIN" "$APP_STAGE/Contents/Resources/Runtime/gateway_proxy"
+chmod +x "$APP_STAGE/Contents/Resources/Runtime"/claude-gateway-*.sh
+chmod +x "$APP_STAGE/Contents/Resources/Runtime/gateway_proxy"
 cp -R "$ROOT/Resources/ClaudeMCPServers" "$APP_STAGE/Contents/Resources/ClaudeMCPServers"
 chmod +x "$APP_STAGE/Contents/Resources/ClaudeMCPServers/vision-provider/server.py"
 
@@ -93,8 +93,8 @@ tell application "Finder"
     set arrangement of viewOptions to not arranged
     set icon size of viewOptions to 96
     set text size of viewOptions to 12
-    set background picture of viewOptions to (POSIX file "$MOUNT_DIR/Claude DeepSeek Gateway.app/Contents/Resources/DmgBackground.png" as alias)
-    set position of item "Claude DeepSeek Gateway.app" of container window to {210, 235}
+    set background picture of viewOptions to (POSIX file "$MOUNT_DIR/Claude Gateway.app/Contents/Resources/DmgBackground.png" as alias)
+    set position of item "Claude Gateway.app" of container window to {210, 235}
     set position of item "Applications" of container window to {613, 235}
     update without registering applications
     delay 2

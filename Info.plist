@@ -5,17 +5,17 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>zh-Hans</string>
 	<key>CFBundleDisplayName</key>
-	<string>Claude DeepSeek Gateway</string>
+	<string>Claude Gateway</string>
 	<key>CFBundleExecutable</key>
-	<string>ClaudeDeepSeekGateway</string>
+	<string>ClaudeGateway</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
-	<string>local.zen.ClaudeDeepSeekGateway</string>
+	<string>local.zen.ClaudeGateway</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Claude DeepSeek Gateway</string>
+	<string>Claude Gateway</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

@@ -1,6 +1,6 @@
-# Claude DeepSeek Gateway Site
+# Claude Gateway Site
 
-This is the English-first Vercel landing page for Claude DeepSeek Gateway.
+This is the English-first Vercel landing page for Claude Gateway.
 
 ## Local Development
 
@@ -23,7 +23,7 @@ Use Vercel Git Integration for automatic deployments from GitHub.
 Connect the Vercel project to this repository:
 
 ```text
-Repository: JUNERDD/claude-deepseek-gateway
+Repository: JUNERDD/claude-gateway
 Production Branch: main
 ```
 
@@ -44,14 +44,14 @@ With Git Integration enabled:
 The linked production URL is:
 
 ```text
-https://claude-deepseek-gateway.vercel.app
+https://claude-gateway.vercel.app
 ```
 
 The Vercel CLI can help connect the current project to Git Integration:
 
 ```bash
 pnpm dlx vercel@latest login
-pnpm dlx vercel@latest link --project claude-deepseek-gateway
+pnpm dlx vercel@latest link --project claude-gateway
 pnpm dlx vercel@latest git connect
 pnpm dlx vercel@latest git ls
 ```

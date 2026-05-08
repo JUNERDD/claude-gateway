@@ -19,32 +19,34 @@ import {
   GitFork,
   HardDrive,
   KeyRound,
+  Menu,
   PackageOpen,
   Server,
   ShieldCheck,
   Terminal,
+  X,
 } from "lucide-react";
 
 const downloadUrl =
-  "https://github.com/JUNERDD/claude-deepseek-gateway/releases/latest/download/ClaudeDeepSeekGateway-latest.dmg";
-const githubUrl = "https://github.com/JUNERDD/claude-deepseek-gateway";
+  "https://github.com/JUNERDD/claude-gateway/releases/latest/download/ClaudeGateway-latest.dmg";
+const githubUrl = "https://github.com/JUNERDD/claude-gateway";
 const defaultEndpoint = "127.0.0.1:4000";
 
 const features = [
   {
+    icon: Server,
+    title: "Bring any provider",
+    text: "Register one or more Anthropic-compatible upstreams and keep provider-specific endpoints, headers, and auth modes local.",
+  },
+  {
+    icon: GitFork,
+    title: "Route models explicitly",
+    text: "Expose Claude-visible model names while mapping each one to the provider and upstream model you choose.",
+  },
+  {
     icon: KeyRound,
-    title: "Your keys never leave",
-    text: "API keys stay on your Mac. The gateway hands Claude a local bearer token instead of your upstream key.",
-  },
-  {
-    icon: Code2,
-    title: "Open source",
-    text: "Every line is public. Inspect the code, audit the proxy, verify there's no telemetry.",
-  },
-  {
-    icon: ShieldCheck,
-    title: "No middleman",
-    text: "Requests go directly from your machine to DeepSeek over HTTPS. No cloud relay, no third party.",
+    title: "Separate local secrets",
+    text: "Claude clients use a local gateway key. Provider API keys stay in app-managed local secrets and never get copied into Claude config.",
   },
 ];
 
@@ -62,12 +64,12 @@ const setupSteps = [
   {
     icon: ShieldCheck,
     title: "Configure",
-    text: "Add your DeepSeek API key locally.",
+    text: "Add providers, model routes, and the local gateway key.",
   },
   {
     icon: CheckCircle2,
     title: "Go",
-    text: `Point Claude to ${defaultEndpoint}.`,
+    text: "Save, sync, and start the local LaunchAgent.",
   },
 ];
 
@@ -75,17 +77,17 @@ const trustRows = [
   {
     icon: KeyRound,
     label: "API keys",
-    detail: "Stored on your Mac, never transmitted",
+    detail: "Stored in local app-managed secrets",
   },
   {
     icon: Server,
-    label: "Requests",
-    detail: "Encrypted HTTPS to DeepSeek only",
+    label: "Providers",
+    detail: "Any Anthropic-compatible upstream",
   },
   {
     icon: HardDrive,
     label: "Logs",
-    detail: "Local file you control, nothing phoned home",
+    detail: "Local files you control, no telemetry",
   },
 ];
 
@@ -93,17 +95,22 @@ const faqs = [
   {
     question: "Do I need an Anthropic API key?",
     answer:
-      "No. Claude clients authenticate with a local bearer key. Upstream requests use your DeepSeek API key.",
+      "No. Claude clients authenticate with a local bearer key. Upstream requests use your configured provider key.",
+  },
+  {
+    question: "Which providers work?",
+    answer:
+      "Any provider that exposes an Anthropic-compatible messages API can be configured with its own base URL, auth mode, headers, and model routes.",
   },
   {
     question: "Does this replace Claude Desktop or Claude Code?",
     answer:
-      "No. It runs alongside them, exposing a local Anthropic-compatible endpoint that forwards to DeepSeek.",
+      "No. It runs alongside them, exposing a local Anthropic-compatible endpoint that forwards to your provider.",
   },
   {
     question: "How does model name translation work?",
     answer:
-      "Claude clients send model IDs like claude-sonnet-4-6. The gateway rewrites them to the DeepSeek model you configured before forwarding.",
+      "Claude clients send model IDs like claude-sonnet-4-6. The gateway rewrites each alias to the provider and upstream model configured in your route table.",
   },
   {
     question: "Where do I troubleshoot issues?",
@@ -144,6 +151,7 @@ const viewport: ViewportOptions = { once: true, amount: 0.24 };
 
 export default function Home() {
   const [openFaq, setOpenFaq] = useState(-1);
+  const [isNavOpen, setIsNavOpen] = useState(false);
 
   useEffect(() => {
     const scrollToHash = () => {
@@ -158,6 +166,36 @@ export default function Home() {
     return () => window.removeEventListener("hashchange", scrollToHash);
   }, []);
 
+  useEffect(() => {
+    if (!isNavOpen) return;
+
+    const closeFromOutside = (event: PointerEvent) => {
+      if (event.target instanceof Element && event.target.closest(".site-header")) {
+        return;
+      }
+      setIsNavOpen(false);
+    };
+    const closeFromEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsNavOpen(false);
+      }
+    };
+    const closeOnWideViewport = () => {
+      if (window.innerWidth > 820) {
+        setIsNavOpen(false);
+      }
+    };
+
+    window.addEventListener("pointerdown", closeFromOutside);
+    window.addEventListener("keydown", closeFromEscape);
+    window.addEventListener("resize", closeOnWideViewport);
+    return () => {
+      window.removeEventListener("pointerdown", closeFromOutside);
+      window.removeEventListener("keydown", closeFromEscape);
+      window.removeEventListener("resize", closeOnWideViewport);
+    };
+  }, [isNavOpen]);
+
   return (
     <MotionConfig reducedMotion="user">
     <main>
@@ -166,7 +204,7 @@ export default function Home() {
         <Link
           className="brand-mark"
           href="#top"
-          aria-label="Claude DeepSeek Gateway home"
+          aria-label="Claude Gateway home"
         >
           <span className="brand-mark-group">
             <Image
@@ -179,12 +217,26 @@ export default function Home() {
             />
             <span className="brand-dot" aria-hidden="true" />
           </span>
-          <span>Claude DeepSeek Gateway</span>
+          <span>Claude Gateway</span>
         </Link>
-        <nav className="top-nav" aria-label="Primary navigation">
-          <Link href="#features">Features</Link>
-          <Link href="#setup">Setup</Link>
-          <Link href={githubUrl} className="nav-cta">
+        <button
+          className="menu-toggle"
+          type="button"
+          aria-label={isNavOpen ? "Close navigation" : "Open navigation"}
+          aria-expanded={isNavOpen}
+          aria-controls="primary-nav"
+          onClick={() => setIsNavOpen((open) => !open)}
+        >
+          {isNavOpen ? <X aria-hidden="true" size={20} /> : <Menu aria-hidden="true" size={20} />}
+        </button>
+        <nav
+          id="primary-nav"
+          className={`top-nav ${isNavOpen ? "is-open" : ""}`}
+          aria-label="Primary navigation"
+        >
+          <Link href="#features" onClick={() => setIsNavOpen(false)}>Features</Link>
+          <Link href="#setup" onClick={() => setIsNavOpen(false)}>Setup</Link>
+          <Link href={githubUrl} className="nav-cta" onClick={() => setIsNavOpen(false)}>
             GitHub
           </Link>
         </nav>
@@ -193,16 +245,16 @@ export default function Home() {
       {/* Hero */}
       <section id="top" className="hero-section">
         <div className="hero-copy">
-          <p className="hero-kicker">Local first. Open source. Zero telemetry.</p>
+          <p className="hero-kicker">Local macOS control plane for Claude clients</p>
           <h1>
-            Claude <i>→</i> DeepSeek
+            Claude Gateway
           </h1>
           <div className="hero-endpoint" aria-label="Default endpoint">
-            <span>{defaultEndpoint}</span>
+            <span>{"Claude clients -> localhost -> your providers"}</span>
           </div>
           <p className="hero-lede">
-            A native macOS gateway that routes Claude Desktop and Claude Code
-            requests to DeepSeek through a local Anthropic-compatible endpoint.
+            Route Claude Desktop and Claude Code through a local gateway that
+            owns provider configuration, model aliases, secrets, logs, and sync.
           </p>
           <div className="hero-actions">
             <Link className="primary-action" href={downloadUrl}>
@@ -221,7 +273,7 @@ export default function Home() {
             src="/product-overview.png"
             width={1580}
             height={1041}
-            alt="Claude DeepSeek Gateway macOS app overview showing gateway status, endpoint, provider, request metrics, and recent requests."
+            alt="Claude Gateway macOS app overview showing local gateway status, provider routes, endpoint, request metrics, and recent requests."
             priority
           />
         </figure>
@@ -239,10 +291,10 @@ export default function Home() {
       >
         <div className="section-heading">
           <p className="eyebrow">Why local</p>
-          <h2 id="features-heading">Everything stays on your machine.</h2>
+          <h2 id="features-heading">Provider control without another cloud account.</h2>
           <p>
-            No cloud dashboard, no telemetry, no third party between you and
-            DeepSeek.
+            Claude Gateway is the local boundary between Claude clients and the
+            upstream providers you already use.
           </p>
         </div>
 
@@ -301,15 +353,15 @@ export default function Home() {
           viewport={viewport}
         >
           <p className="eyebrow">How it routes</p>
-          <h2 id="route-heading">One hop. Zero leaks.</h2>
+          <h2 id="route-heading">Claude talks to localhost. Gateway handles the rest.</h2>
           <p>
-            Claude talks to localhost. The gateway rewrites model names
-            and forwards to DeepSeek over HTTPS.
+            Each request is authenticated locally, matched against your model
+            route table, and forwarded over HTTPS to the selected provider.
           </p>
         </motion.div>
         <motion.div
           className="route-diagram"
-          aria-label="Claude clients route through local gateway to DeepSeek"
+          aria-label="Claude clients route through local gateway to a configured upstream provider"
           variants={staggeredReveal}
           initial="hidden"
           whileInView="visible"
@@ -327,8 +379,8 @@ export default function Home() {
             <span className="route-node-icon">
               <Code2 aria-hidden="true" size={22} />
             </span>
-            <strong>Claude Desktop</strong>
-            <span>or Claude Code</span>
+            <strong>Claude clients</strong>
+            <span>Desktop + Code</span>
           </motion.div>
 
           <div className="route-pipe" aria-hidden="true">
@@ -340,8 +392,8 @@ export default function Home() {
             <span className="route-node-icon">
               <Terminal aria-hidden="true" size={22} />
             </span>
-            <strong>Gateway</strong>
-            <span>Model rewrite + proxy</span>
+            <strong>Claude Gateway</strong>
+            <span>Keys, routes, logs</span>
             <div className="route-endpoint-badge" aria-label="Local endpoint">
               <span className="route-endpoint-dot" />
               {defaultEndpoint}
@@ -357,7 +409,7 @@ export default function Home() {
             <span className="route-node-icon">
               <Server aria-hidden="true" size={22} />
             </span>
-            <strong>DeepSeek</strong>
+            <strong>Providers</strong>
             <span>Anthropic-compatible API</span>
           </motion.div>
         </motion.div>
@@ -371,7 +423,7 @@ export default function Home() {
       >
         <div className="section-heading" style={{ marginBottom: 52 }}>
           <p className="eyebrow">Get started</p>
-          <h2 id="setup-heading">Four steps to running.</h2>
+          <h2 id="setup-heading">Four steps from install to synced Claude clients.</h2>
         </div>
 
         <div className="setup-inner">
@@ -418,6 +470,11 @@ export default function Home() {
               <span className="cmd-value">http://{defaultEndpoint}</span>
               {"\n"}
               <span className="cmd-prompt">$ </span>
+              <span className="cmd-export">export</span>
+              {" "}ANTHROPIC_AUTH_TOKEN=
+              <span className="cmd-value">local-gateway-key</span>
+              {"\n"}
+              <span className="cmd-prompt">$ </span>
               claude
               {"\n"}
               <span className="cmd-comment"># That&apos;s it.</span>
@@ -428,7 +485,7 @@ export default function Home() {
                 type="button"
                 onClick={() => {
                   navigator.clipboard.writeText(
-                    `export ANTHROPIC_BASE_URL=http://${defaultEndpoint}`
+                    `export ANTHROPIC_BASE_URL=http://${defaultEndpoint}\nexport ANTHROPIC_AUTH_TOKEN=local-gateway-key`
                   );
                 }}
               >
@@ -453,8 +510,8 @@ export default function Home() {
           viewport={viewport}
         >
           <p className="eyebrow">Ready when you are</p>
-          <h2 id="final-cta-heading">Use Claude. Pay DeepSeek.</h2>
-          <p>Keep your workflow, cut your API costs.</p>
+          <h2 id="final-cta-heading">Use Claude with the providers you control.</h2>
+          <p>Install the app, configure routes locally, and keep Claude synced.</p>
           <Link className="primary-action" href={downloadUrl}>
             Download latest DMG
             <ArrowDownToLine aria-hidden="true" size={18} />
@@ -505,7 +562,7 @@ export default function Home() {
       <footer className="site-footer">
         <span className="footer-brand">
           <Terminal aria-hidden="true" size={20} />
-          Claude DeepSeek Gateway
+          Claude Gateway
         </span>
         <Link href={githubUrl}>GitHub</Link>
         <Link href={`${githubUrl}/blob/main/SECURITY.md`}>Security</Link>

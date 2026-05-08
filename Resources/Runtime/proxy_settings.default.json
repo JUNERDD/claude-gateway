@@ -1,17 +1,43 @@
 {
+  "defaultProviderID": "custom",
+  "defaultRoute": {
+    "providerID": "custom",
+    "upstreamModel": "claude-sonnet-4-6"
+  },
   "host": "127.0.0.1",
+  "modelRoutes": [
+    {
+      "alias": "claude-opus-4-7",
+      "providerID": "custom",
+      "upstreamModel": "claude-opus-4-7"
+    },
+    {
+      "alias": "claude-sonnet-4-6",
+      "providerID": "custom",
+      "upstreamModel": "claude-sonnet-4-6"
+    },
+    {
+      "alias": "claude-haiku-4-5",
+      "providerID": "custom",
+      "upstreamModel": "claude-haiku-4-5"
+    }
+  ],
   "port": 4000,
-  "anthropicBaseURL": "https://api.deepseek.com/anthropic",
-  "haikuTargetModel": "deepseek-v4-flash",
-  "nonHaikuTargetModel": "deepseek-v4-pro[1m]",
-  "visionProvider": "auto",
-  "visionProviderModel": "",
-  "visionProviderBaseURL": "",
+  "providers": [
+    {
+      "auth": {
+        "customHeaderName": "",
+        "type": "x-api-key"
+      },
+      "baseURL": "",
+      "defaultHeaders": {},
+      "displayName": "Custom Anthropic-compatible",
+      "id": "custom"
+    }
+  ],
   "systemPromptPrefix": "",
   "systemPromptSuffix": "",
-  "advertisedModels": [
-    "claude-opus-4-7",
-    "claude-sonnet-4-6",
-    "claude-haiku-4-5"
-  ]
+  "visionProvider": "auto",
+  "visionProviderBaseURL": "",
+  "visionProviderModel": ""
 }

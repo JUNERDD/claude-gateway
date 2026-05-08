@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Rebranded public documentation and website surfaces to Claude Gateway.
+- Reframed the public narrative around provider-neutral custom Anthropic-compatible upstreams, with provider-specific details moved to examples or historical release notes.
+
 ## 1.0.16 - 2026-05-08
 
 ### Added
@@ -20,12 +27,12 @@
 
 ### Added
 
-- Added the Vercel-ready public website for Claude DeepSeek Gateway.
+- Added the Vercel-ready public website for Claude Gateway.
 - Added CI coverage for website linting and production builds.
 
 ### Changed
 
-- Release packaging now creates and uploads a stable `ClaudeDeepSeekGateway-latest.dmg` asset.
+- Release packaging now creates and uploads a stable `ClaudeGateway-latest.dmg` asset.
 - Dashboard metrics now reuse cached log records so rolling chart windows refresh even when the log tail is unchanged.
 
 ### Fixed
@@ -192,7 +199,7 @@ Initial release.
 
 ### Added
 
-- macOS SwiftUI manager app named Claude DeepSeek Gateway.
+- macOS SwiftUI manager app named Claude Gateway.
 - Native Swift local gateway binary bundled inside the app.
 - First-run runtime installer for scripts, settings, and local gateway binary.
 - Settings UI for DeepSeek API key, local gateway key, endpoint, advertised models, and model mapping.
