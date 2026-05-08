@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Claude DeepSeek Gateway",
+  title: "Claude DeepSeek Gateway — Local macOS proxy for DeepSeek",
   description:
-    "A local macOS gateway that lets Claude Desktop and Claude Code send Anthropic-compatible requests to DeepSeek.",
+    "A native macOS gateway that routes Claude Desktop and Claude Code requests to DeepSeek through a local Anthropic-compatible endpoint. Open source, local first, zero telemetry.",
   applicationName: "Claude DeepSeek Gateway",
   keywords: [
     "Claude Desktop",
@@ -13,18 +13,21 @@ export const metadata: Metadata = {
     "Anthropic compatible",
     "macOS gateway",
     "local proxy",
+    "API cost savings",
   ],
-  authors: [{ name: "JUNERDD" }],
+  authors: [{ name: "JUNERDD", url: "https://github.com/JUNERDD" }],
   creator: "JUNERDD",
   icons: {
     icon: "/app-icon.png",
     apple: "/app-icon.png",
   },
   openGraph: {
-    title: "Claude DeepSeek Gateway",
+    title: "Claude DeepSeek Gateway — Local macOS proxy for DeepSeek",
     description:
-      "Install a native macOS gateway for routing Claude Desktop and Claude Code requests to DeepSeek.",
+      "Route Claude Desktop and Claude Code to DeepSeek through a local Anthropic-compatible endpoint. Open source, local first, zero telemetry.",
     type: "website",
+    siteName: "Claude DeepSeek Gateway",
+    images: [{ url: "/app-icon.png" }],
   },
 };
 

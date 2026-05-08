@@ -14,63 +14,37 @@ import {
   ArrowRight,
   CheckCircle2,
   ChevronDown,
-  Clipboard,
   Code2,
-  Database,
-  ExternalLink,
+  Copy,
   GitFork,
   HardDrive,
   KeyRound,
-  Laptop,
   PackageOpen,
-  Route,
   Server,
-  Settings2,
   ShieldCheck,
-  ShieldOff,
   Terminal,
 } from "lucide-react";
 
 const downloadUrl =
   "https://github.com/JUNERDD/claude-deepseek-gateway/releases/latest/download/ClaudeDeepSeekGateway-latest.dmg";
 const githubUrl = "https://github.com/JUNERDD/claude-deepseek-gateway";
-const readmeUrl =
-  "https://github.com/JUNERDD/claude-deepseek-gateway#readme";
 const defaultEndpoint = "127.0.0.1:4000";
 
-const principles = [
-  {
-    icon: Laptop,
-    title: "Runs on your Mac",
-    text: "The gateway listens locally and stays visible in a native control surface.",
-  },
+const features = [
   {
     icon: KeyRound,
-    title: "Keys stay local",
-    text: "Claude clients receive a separate local bearer key, not your upstream key.",
-  },
-  {
-    icon: ShieldOff,
-    title: "No tracking",
-    text: "No custom analytics scripts, cookies, or telemetry are added to this site.",
-  },
-];
-
-const localProofs = [
-  {
-    icon: KeyRound,
-    title: "You keep your keys",
-    text: "Stored locally. Never sent to us.",
-  },
-  {
-    icon: ShieldOff,
-    title: "No tracking",
-    text: "No analytics. No telemetry.",
+    title: "Your keys never leave",
+    text: "API keys stay on your Mac. The gateway hands Claude a local bearer token instead of your upstream key.",
   },
   {
     icon: Code2,
     title: "Open source",
-    text: "Inspect the code. Verify everything.",
+    text: "Every line is public. Inspect the code, audit the proxy, verify there's no telemetry.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "No middleman",
+    text: "Requests go directly from your machine to DeepSeek over HTTPS. No cloud relay, no third party.",
   },
 ];
 
@@ -97,55 +71,21 @@ const setupSteps = [
   },
 ];
 
-const routeNodes = [
-  {
-    icon: Code2,
-    title: "Claude Desktop",
-    detail: "or Claude Code",
-  },
-  {
-    icon: Terminal,
-    title: "Claude DeepSeek",
-    detail: "Gateway",
-    active: true,
-  },
-  {
-    icon: Route,
-    title: "DeepSeek",
-    detail: "Anthropic-compatible",
-  },
-];
-
 const trustRows = [
-  {
-    icon: Server,
-    label: "Requests",
-    detail: "From Claude to DeepSeek",
-    status: "Allowed",
-  },
   {
     icon: KeyRound,
     label: "API keys",
-    detail: "Stored on your Mac",
-    status: "Local only",
+    detail: "Stored on your Mac, never transmitted",
   },
   {
-    icon: ShieldOff,
-    label: "Telemetry",
-    detail: "No analytics. No pings.",
-    status: "Blocked",
+    icon: Server,
+    label: "Requests",
+    detail: "Encrypted HTTPS to DeepSeek only",
   },
   {
-    icon: Database,
+    icon: HardDrive,
     label: "Logs",
-    detail: "Local log file you control",
-    status: "Local only",
-  },
-  {
-    icon: Code2,
-    label: "Source code",
-    detail: "Open source",
-    status: "Public",
+    detail: "Local file you control, nothing phoned home",
   },
 ];
 
@@ -153,22 +93,22 @@ const faqs = [
   {
     question: "Do I need an Anthropic API key?",
     answer:
-      "No. Claude clients receive a local bearer key for the gateway. Upstream text requests use your DeepSeek API key.",
+      "No. Claude clients authenticate with a local bearer key. Upstream requests use your DeepSeek API key.",
   },
   {
     question: "Does this replace Claude Desktop or Claude Code?",
     answer:
-      "No. It sits between those clients and DeepSeek, exposing a local Anthropic-compatible endpoint on your Mac.",
+      "No. It runs alongside them, exposing a local Anthropic-compatible endpoint that forwards to DeepSeek.",
   },
   {
-    question: "Why expose claude-* model names?",
+    question: "How does model name translation work?",
     answer:
-      "Claude clients expect Claude-style model identifiers. The gateway rewrites the model field before forwarding the request.",
+      "Claude clients send model IDs like claude-sonnet-4-6. The gateway rewrites them to the DeepSeek model you configured before forwarding.",
   },
   {
-    question: "Where do I troubleshoot setup issues?",
+    question: "Where do I troubleshoot issues?",
     answer:
-      "Use the app's Issues and Logs views first, then run the bundled doctor script or open the full README.",
+      "Start with the app's Logs view and the bundled doctor script. Full docs are on GitHub.",
   },
 ];
 
@@ -203,72 +143,68 @@ const staggeredReveal: Variants = {
 const viewport: ViewportOptions = { once: true, amount: 0.24 };
 
 export default function Home() {
-  const [openFaq, setOpenFaq] = useState(0);
+  const [openFaq, setOpenFaq] = useState(-1);
 
   useEffect(() => {
     const scrollToHash = () => {
       const targetId = window.location.hash.slice(1);
-      if (!targetId) {
-        return;
-      }
-
+      if (!targetId) return;
       window.requestAnimationFrame(() => {
         document.getElementById(targetId)?.scrollIntoView({ block: "start" });
       });
     };
-
     scrollToHash();
     window.addEventListener("hashchange", scrollToHash);
-
     return () => window.removeEventListener("hashchange", scrollToHash);
   }, []);
 
   return (
     <MotionConfig reducedMotion="user">
     <main>
+      {/* Header */}
       <header className="site-header">
         <Link
           className="brand-mark"
           href="#top"
           aria-label="Claude DeepSeek Gateway home"
         >
-          <Image
-            src="/app-icon.png"
-            width={36}
-            height={36}
-            alt=""
-            priority
-            className="brand-icon"
-          />
+          <span className="brand-mark-group">
+            <Image
+              src="/app-icon.png"
+              width={32}
+              height={32}
+              alt=""
+              priority
+              className="brand-icon"
+            />
+            <span className="brand-dot" aria-hidden="true" />
+          </span>
           <span>Claude DeepSeek Gateway</span>
         </Link>
         <nav className="top-nav" aria-label="Primary navigation">
-          <Link href={readmeUrl}>Docs</Link>
-          <Link href="#setup">Installation</Link>
-          <Link href="#api">API</Link>
-          <Link href={githubUrl}>
-            GitHub <ExternalLink aria-hidden="true" size={13} />
+          <Link href="#features">Features</Link>
+          <Link href="#setup">Setup</Link>
+          <Link href={githubUrl} className="nav-cta">
+            GitHub
           </Link>
         </nav>
-        <div className="privacy-pill" aria-label="No tracking">
-          <span aria-hidden="true" />
-          No tracking
-        </div>
       </header>
 
+      {/* Hero */}
       <section id="top" className="hero-section">
         <div className="hero-copy">
-          <p className="hero-kicker">Local Claude-to-DeepSeek gateway</p>
+          <p className="hero-kicker">Local first. Open source. Zero telemetry.</p>
           <h1>
-            <span>Claude</span>
-            <span>DeepSeek</span>
-            <span>Gateway</span>
+            Claude <i>→</i> DeepSeek
           </h1>
           <div className="hero-endpoint" aria-label="Default endpoint">
-            <span>127.0.0.1</span>
+            <span>{defaultEndpoint}</span>
           </div>
-          <p className="hero-lede">Open source. Local first. No tracking.</p>
-          <div className="hero-actions" aria-label="Download actions">
+          <p className="hero-lede">
+            A native macOS gateway that routes Claude Desktop and Claude Code
+            requests to DeepSeek through a local Anthropic-compatible endpoint.
+          </p>
+          <div className="hero-actions">
             <Link className="primary-action" href={downloadUrl}>
               <ArrowDownToLine aria-hidden="true" size={18} />
               Download for macOS
@@ -278,17 +214,6 @@ export default function Home() {
               View source
             </Link>
           </div>
-          <ul className="hero-assurances" aria-label="Product assurances">
-            {principles.map((item) => {
-              const Icon = item.icon;
-              return (
-                <li key={item.title}>
-                  <Icon aria-hidden="true" size={16} />
-                  {item.title}
-                </li>
-              );
-            })}
-          </ul>
         </div>
 
         <figure className="product-stage" aria-label="Gateway app preview">
@@ -303,7 +228,7 @@ export default function Home() {
               src="/product-overview.png"
               width={1580}
               height={1041}
-              alt="Claude DeepSeek Gateway macOS app overview with gateway status, endpoint, provider, request metrics, and recent requests."
+              alt="Claude DeepSeek Gateway macOS app overview showing gateway status, endpoint, provider, request metrics, and recent requests."
               priority
               className="product-shot"
             />
@@ -311,95 +236,67 @@ export default function Home() {
         </figure>
       </section>
 
+      {/* Features */}
       <motion.section
-        className="local-section"
-        aria-labelledby="local-heading"
+        id="features"
+        className="features-section"
+        aria-labelledby="features-heading"
         variants={sectionReveal}
         initial="hidden"
         whileInView="visible"
         viewport={viewport}
       >
-        <div className="local-copy">
-          <p className="eyebrow">Local by design</p>
-          <h2 id="local-heading">Your models. Your keys. Your machine.</h2>
+        <div className="section-heading">
+          <p className="eyebrow">Why local</p>
+          <h2 id="features-heading">Everything stays on your machine.</h2>
           <p>
-            Claude DeepSeek Gateway runs entirely on your Mac. Your requests
-            never leave your machine except to DeepSeek.
+            No cloud dashboard, no telemetry, no third party between you and
+            DeepSeek.
           </p>
-          <motion.div
-            className="local-proof-list"
-            variants={staggeredReveal}
-            initial="hidden"
-            whileInView="visible"
-            viewport={viewport}
-          >
-            {localProofs.map((item) => {
-              const Icon = item.icon;
-              return (
-                <motion.article key={item.title} className="local-proof" variants={itemReveal}>
-                  <span className="local-proof-icon">
-                    <Icon aria-hidden="true" size={20} />
-                  </span>
-                  <div>
-                    <h3>{item.title}</h3>
-                    <p>{item.text}</p>
-                  </div>
-                </motion.article>
-              );
-            })}
-          </motion.div>
         </div>
 
         <motion.div
-          className="status-stage"
-          aria-label="Local gateway status"
-          initial={{ opacity: 0, scale: 0.94 }}
-          whileInView={{ opacity: 1, scale: 1 }}
+          className="features-grid"
+          variants={staggeredReveal}
+          initial="hidden"
+          whileInView="visible"
           viewport={viewport}
-          transition={{ duration: 0.7, ease: "easeOut" }}
         >
-          <div className="signal-rings" aria-hidden="true">
-            <span />
-            <span />
-            <span />
-          </div>
-          <div className="status-card">
-            <div className="status-dots" aria-hidden="true">
-              <span />
-              <span />
-              <span />
-            </div>
-            <p className="status-running">
-              <span aria-hidden="true" />
-              Gateway is running
-            </p>
-            <dl>
+          {features.map((item) => {
+            const Icon = item.icon;
+            return (
+              <motion.article key={item.title} className="feature-card" variants={itemReveal}>
+                <span className="feature-icon">
+                  <Icon aria-hidden="true" size={22} />
+                </span>
+                <h3>{item.title}</h3>
+                <p>{item.text}</p>
+              </motion.article>
+            );
+          })}
+        </motion.div>
+
+        <motion.div
+          className="trust-ledger"
+          variants={staggeredReveal}
+          initial="hidden"
+          whileInView="visible"
+          viewport={viewport}
+          aria-label="Privacy guarantees"
+        >
+          {trustRows.map((row) => (
+            <motion.div key={row.label} className="trust-row" variants={itemReveal}>
+              <row.icon aria-hidden="true" size={20} />
               <div>
-                <dt>Endpoint</dt>
-                <dd>
-                  {defaultEndpoint}
-                  <Clipboard aria-hidden="true" size={15} />
-                </dd>
+                <strong>{row.label}</strong>
+                <span>{row.detail}</span>
               </div>
-              <div>
-                <dt>Provider</dt>
-                <dd>
-                  DeepSeek <strong>Active</strong>
-                </dd>
-              </div>
-              <div>
-                <dt>Requests today</dt>
-                <dd>128</dd>
-              </div>
-            </dl>
-            <div className="status-actions">
-              <span>Open Logs</span>
-              <Settings2 aria-hidden="true" size={16} />
-            </div>
-          </div>
+            </motion.div>
+          ))}
         </motion.div>
       </motion.section>
 
+      {/* How it routes */}
       <section
         id="api"
         className="route-section"
@@ -413,141 +310,146 @@ export default function Home() {
           viewport={viewport}
         >
           <p className="eyebrow">How it routes</p>
-          <h2 id="route-heading">Claude talks to localhost.</h2>
+          <h2 id="route-heading">One hop. Zero leaks.</h2>
           <p>
-            Claude Desktop and Claude Code send requests to 127.0.0.1. The
-            gateway forwards them to DeepSeek and streams the response back.
+            Claude talks to localhost. The gateway rewrites model names
+            and forwards to DeepSeek over HTTPS.
           </p>
         </motion.div>
         <motion.div
-          className="route-map"
+          className="route-diagram"
           aria-label="Claude clients route through local gateway to DeepSeek"
           variants={staggeredReveal}
           initial="hidden"
           whileInView="visible"
           viewport={viewport}
         >
-          {routeNodes.map((node, index) => {
-            const Icon = node.icon;
-            return (
-              <motion.div
-                key={node.title}
-                className={node.active ? "route-map-node route-map-node-active" : "route-map-node"}
-                variants={itemReveal}
-              >
-                <Icon aria-hidden="true" size={30} />
-                <strong>{node.title}</strong>
-                <span>{node.detail}</span>
-                {node.active ? <em>127.0.0.1</em> : null}
-                {index < routeNodes.length - 1 ? (
-                  <ArrowRight className="route-map-arrow" aria-hidden="true" size={28} />
-                ) : null}
-              </motion.div>
-            );
-          })}
-          <div className="response-stream" aria-hidden="true">Response stream</div>
+          <div className="route-bg-particles" aria-hidden="true">
+            <span className="route-bg-particle" />
+            <span className="route-bg-particle" />
+            <span className="route-bg-particle" />
+            <span className="route-bg-particle" />
+            <span className="route-bg-particle" />
+          </div>
+
+          <motion.div className="route-node" variants={itemReveal}>
+            <span className="route-node-icon">
+              <Code2 aria-hidden="true" size={22} />
+            </span>
+            <strong>Claude Desktop</strong>
+            <span>or Claude Code</span>
+          </motion.div>
+
+          <div className="route-pipe" aria-hidden="true">
+            <span className="route-pipe-line" />
+            <ArrowRight className="route-pipe-arrow" size={14} />
+          </div>
+
+          <motion.div className="route-node route-node-active" variants={itemReveal}>
+            <span className="route-node-icon">
+              <Terminal aria-hidden="true" size={22} />
+            </span>
+            <strong>Gateway</strong>
+            <span>Model rewrite + proxy</span>
+            <div className="route-endpoint-badge" aria-label="Local endpoint">
+              <span className="route-endpoint-dot" />
+              {defaultEndpoint}
+            </div>
+          </motion.div>
+
+          <div className="route-pipe" aria-hidden="true">
+            <span className="route-pipe-line" />
+            <ArrowRight className="route-pipe-arrow" size={14} />
+          </div>
+
+          <motion.div className="route-node" variants={itemReveal}>
+            <span className="route-node-icon">
+              <Server aria-hidden="true" size={22} />
+            </span>
+            <strong>DeepSeek</strong>
+            <span>Anthropic-compatible API</span>
+          </motion.div>
         </motion.div>
       </section>
 
+      {/* Setup */}
       <section
         id="setup"
         className="setup-section"
         aria-labelledby="setup-heading"
       >
-        <motion.div
-          className="section-heading"
-          variants={sectionReveal}
-          initial="hidden"
-          whileInView="visible"
-          viewport={viewport}
-        >
+        <div className="section-heading" style={{ marginBottom: 52 }}>
           <p className="eyebrow">Get started</p>
-          <h2 id="setup-heading">Four steps. No proxy choreography.</h2>
-          <Link className="text-link setup-guide-link" href={readmeUrl}>
-            View installation guide <ArrowRight aria-hidden="true" size={16} />
-          </Link>
-        </motion.div>
-        <motion.ol
-          className="setup-timeline"
-          variants={staggeredReveal}
-          initial="hidden"
-          whileInView="visible"
-          viewport={viewport}
-        >
-          {setupSteps.map((step, index) => (
-            <motion.li key={step.title} variants={itemReveal}>
-              <span className="step-index">{String(index + 1).padStart(2, "0")}</span>
-              <div className="step-icon">
-                <step.icon aria-hidden="true" size={22} />
-              </div>
-              <div>
-                <h3>{step.title}</h3>
-                <p>{step.text}</p>
-              </div>
-            </motion.li>
-          ))}
-        </motion.ol>
-        <motion.div
-          className="terminal-strip"
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={viewport}
-          transition={{ duration: 0.54, ease: "easeOut", delay: 0.18 }}
-        >
-          <code>
-            <span>export</span> ANTHROPIC_BASE_URL=<strong>http://{defaultEndpoint}</strong>
-          </code>
-          <Clipboard aria-hidden="true" size={18} />
-        </motion.div>
-      </section>
+          <h2 id="setup-heading">Four steps to running.</h2>
+        </div>
 
-      <section
-        id="privacy"
-        className="trust-section"
-        aria-labelledby="trust-heading"
-      >
-        <motion.div
-          className="trust-statement"
-          variants={sectionReveal}
-          initial="hidden"
-          whileInView="visible"
-          viewport={viewport}
-        >
-          <p className="eyebrow">Trust ledger</p>
-          <h2 id="trust-heading">Trust boundary</h2>
-          <p>
-            Your data stays on your machine. Only model requests go to DeepSeek
-            over HTTPS.
-          </p>
-          <Link className="text-link" href={readmeUrl}>
-            Read the threat model <ArrowRight aria-hidden="true" size={16} />
-          </Link>
-          <div className="architecture-note">
-            <LockBadge />
-            <div>
-              <strong>Client-only architecture</strong>
-              <span>No cloud component. No middleman.</span>
+        <div className="setup-inner">
+          <motion.ol
+            className="setup-steps"
+            variants={staggeredReveal}
+            initial="hidden"
+            whileInView="visible"
+            viewport={viewport}
+          >
+            {setupSteps.map((step, index) => (
+              <motion.li key={step.title} className="setup-step" variants={itemReveal}>
+                <div className="step-number-col">
+                  <span className="step-number">
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
+                  <span className="step-number-sub">Step</span>
+                </div>
+                <div className="step-body">
+                  <h3>{step.title}</h3>
+                  <p>{step.text}</p>
+                </div>
+              </motion.li>
+            ))}
+          </motion.ol>
+
+          <motion.div
+            className="setup-terminal-block"
+            initial={{ opacity: 0, y: 24 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={viewport}
+            transition={{ duration: 0.6, ease: "easeOut", delay: 0.2 }}
+          >
+            <div className="setup-terminal-head" aria-hidden="true">
+              <span className="setup-terminal-dot" />
+              <span className="setup-terminal-dot" />
+              <span className="setup-terminal-dot" />
+              <span className="setup-terminal-title">Terminal</span>
             </div>
-          </div>
-        </motion.div>
-        <motion.div
-          className="trust-ledger"
-          variants={staggeredReveal}
-          initial="hidden"
-          whileInView="visible"
-          viewport={viewport}
-        >
-          {trustRows.map((row) => (
-            <motion.div key={row.label} className="trust-row" variants={itemReveal}>
-              <row.icon aria-hidden="true" size={23} />
-              <strong>{row.label}</strong>
-              <span>{row.detail}</span>
-              <em>{row.status}</em>
-            </motion.div>
-          ))}
-        </motion.div>
+            <div className="setup-terminal-body">
+              <span className="cmd-prompt">$ </span>
+              <span className="cmd-export">export</span>
+              {" "}ANTHROPIC_BASE_URL=
+              <span className="cmd-value">http://{defaultEndpoint}</span>
+              {"\n"}
+              <span className="cmd-prompt">$ </span>
+              claude
+              {"\n"}
+              <span className="cmd-comment"># That's it.</span>
+            </div>
+            <div className="setup-terminal-foot">
+              <span>bash / zsh</span>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(
+                    `export ANTHROPIC_BASE_URL=http://${defaultEndpoint}`
+                  );
+                }}
+              >
+                <Copy aria-hidden="true" size={13} />
+                Copy
+              </button>
+            </div>
+          </motion.div>
+        </div>
       </section>
 
+      {/* CTA + FAQ */}
       <section
         className="closing-section"
         aria-labelledby="final-cta-heading"
@@ -560,13 +462,13 @@ export default function Home() {
           viewport={viewport}
         >
           <p className="eyebrow">Ready when you are</p>
-          <h2 id="final-cta-heading">Keep control. Ship faster.</h2>
-          <p>Route Claude to DeepSeek in minutes.</p>
+          <h2 id="final-cta-heading">Use Claude. Pay DeepSeek.</h2>
+          <p>Keep your workflow, cut your API costs.</p>
           <Link className="primary-action" href={downloadUrl}>
             Download latest DMG
             <ArrowDownToLine aria-hidden="true" size={18} />
           </Link>
-          <span className="compatibility-note">macOS 14.4+ · Apple Silicon & Intel</span>
+          <span className="compatibility-note">macOS 14.4+ &middot; Apple Silicon &amp; Intel</span>
         </motion.div>
         <div
           id="faq"
@@ -591,7 +493,6 @@ export default function Home() {
                       setOpenFaq(index);
                       return;
                     }
-
                     setOpenFaq((current) => (current === index ? -1 : current));
                   }}
                 >
@@ -609,24 +510,17 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Footer */}
       <footer className="site-footer">
         <span className="footer-brand">
-          <Terminal aria-hidden="true" size={22} />
+          <Terminal aria-hidden="true" size={20} />
           Claude DeepSeek Gateway
         </span>
         <Link href={githubUrl}>GitHub</Link>
-        <Link href={readmeUrl}>Docs</Link>
-        <Link href={readmeUrl}>Security</Link>
+        <Link href={`${githubUrl}/blob/main/SECURITY.md`}>Security</Link>
+        <Link href={`${githubUrl}/blob/main/LICENSE`}>License</Link>
       </footer>
     </main>
     </MotionConfig>
-  );
-}
-
-function LockBadge() {
-  return (
-    <span className="lock-badge" aria-hidden="true">
-      <HardDrive size={21} />
-    </span>
   );
 }
