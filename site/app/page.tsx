@@ -429,7 +429,7 @@ export default function Home() {
               <span className="cmd-prompt">$ </span>
               claude
               {"\n"}
-              <span className="cmd-comment"># That's it.</span>
+              <span className="cmd-comment"># That&apos;s it.</span>
             </div>
             <div className="setup-terminal-foot">
               <span>bash / zsh</span>
