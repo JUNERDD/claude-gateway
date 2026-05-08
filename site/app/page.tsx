@@ -216,23 +216,14 @@ export default function Home() {
           </div>
         </div>
 
-        <figure className="product-stage" aria-label="Gateway app preview">
-          <div className="product-window">
-            <div className="visual-toolbar" aria-hidden="true">
-              <span />
-              <span />
-              <span />
-              <strong>Claude DeepSeek Gateway</strong>
-            </div>
-            <Image
-              src="/product-overview.png"
-              width={1580}
-              height={1041}
-              alt="Claude DeepSeek Gateway macOS app overview showing gateway status, endpoint, provider, request metrics, and recent requests."
-              priority
-              className="product-shot"
-            />
-          </div>
+        <figure className="product-shot-wrap" aria-label="Gateway app preview">
+          <Image
+            src="/product-overview.png"
+            width={1580}
+            height={1041}
+            alt="Claude DeepSeek Gateway macOS app overview showing gateway status, endpoint, provider, request metrics, and recent requests."
+            priority
+          />
         </figure>
       </section>
 
