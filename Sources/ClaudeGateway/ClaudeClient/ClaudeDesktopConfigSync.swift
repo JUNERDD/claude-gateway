@@ -860,9 +860,7 @@ enum ClaudeDesktopConfigSync {
             modelRoutes: decoded.modelRoutes.isEmpty ? ProxyDiskSettings.defaultModelRoutes : decoded.modelRoutes,
             visionProvider: decoded.visionProvider,
             visionProviderModel: decoded.visionProviderModel.trimmingCharacters(in: .whitespacesAndNewlines),
-            visionProviderBaseURL: decoded.visionProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines),
-            systemPromptPrefix: decoded.systemPromptPrefix,
-            systemPromptSuffix: decoded.systemPromptSuffix
+            visionProviderBaseURL: decoded.visionProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         )
     }
 

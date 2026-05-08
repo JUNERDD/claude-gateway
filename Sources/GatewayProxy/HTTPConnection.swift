@@ -253,7 +253,7 @@ final class HTTPConnection {
             fputs("model rewrite: \(originalModel) -> \(targetModel) via \(provider.id)\n", stderr)
         }
 
-        payload = payloadByInjectingSystemPrompt(into: payload, settings: settings)
+        payload = payloadByInjectingSystemPrompt(into: payload, injection: provider.systemPromptInjection)
 
         guard let body = try? JSONSerialization.data(withJSONObject: payload) else {
             writeLoggedJSON(status: 400, payload: [

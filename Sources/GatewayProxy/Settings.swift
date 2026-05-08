@@ -12,8 +12,6 @@ struct ProxySettings {
     var visionProvider: String = "auto"
     var visionProviderModel: String = ""
     var visionProviderBaseURL: String = ""
-    var systemPromptPrefix: String = ""
-    var systemPromptSuffix: String = ""
 
     var advertisedModels: [String] {
         uniqueNonEmpty(modelRoutes.map(\.alias))
@@ -58,8 +56,6 @@ final class SettingsLoader {
         var visionProvider: String?
         var visionProviderModel: String?
         var visionProviderBaseURL: String?
-        var systemPromptPrefix: String?
-        var systemPromptSuffix: String?
     }
 
     private let lock = NSLock()
@@ -110,12 +106,6 @@ final class SettingsLoader {
             }
             if let value = decoded.visionProviderBaseURL {
                 settings.visionProviderBaseURL = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-            if let value = decoded.systemPromptPrefix {
-                settings.systemPromptPrefix = value
-            }
-            if let value = decoded.systemPromptSuffix {
-                settings.systemPromptSuffix = value
             }
         }
 

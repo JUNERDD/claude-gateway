@@ -29,6 +29,7 @@ final class ProxySettingsErrorTests: XCTestCase {
         XCTAssertEqual(decoded.visionProvider, "auto")
         XCTAssertEqual(decoded.visionProviderModel, "")
         XCTAssertEqual(decoded.visionProviderBaseURL, "")
+        XCTAssertEqual(decoded.providers.first?.systemPromptInjection, "")
     }
 
     func testEncodedSettingsUseProviderRoutesAndGenericVisionProviderFields() throws {
@@ -41,7 +42,8 @@ final class ProxySettingsErrorTests: XCTestCase {
                     displayName: "Custom",
                     baseURL: "https://provider.example.com/anthropic",
                     auth: GatewayProviderAuth(type: GatewayProviderAuth.bearer),
-                    defaultHeaders: [:]
+                    defaultHeaders: [:],
+                    systemPromptInjection: "stable provider instruction"
                 ),
             ],
             defaultProviderID: "custom",
@@ -51,9 +53,7 @@ final class ProxySettingsErrorTests: XCTestCase {
             ],
             visionProvider: "dashscope",
             visionProviderModel: "qwen3-vl-flash",
-            visionProviderBaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-            systemPromptPrefix: "",
-            systemPromptSuffix: ""
+            visionProviderBaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1"
         )
 
         let data = try JSONEncoder().encode(settings)
@@ -62,7 +62,10 @@ final class ProxySettingsErrorTests: XCTestCase {
         XCTAssertTrue(text.contains("providers"))
         XCTAssertTrue(text.contains("modelRoutes"))
         XCTAssertTrue(text.contains("visionProvider"))
+        XCTAssertTrue(text.contains("systemPromptInjection"))
         XCTAssertFalse(text.contains("haiku" + "TargetModel"))
+        XCTAssertFalse(text.contains("systemPromptPrefix"))
+        XCTAssertFalse(text.contains("systemPromptSuffix"))
     }
 
     func testEmptyFieldErrorMessageNamesTheMissingField() {

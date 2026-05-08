@@ -28,11 +28,6 @@ struct SettingsView: View {
                         Label("Vision", systemImage: "eye")
                     }
 
-                SystemPromptSettingsPane(settings: settings)
-                    .tabItem {
-                        Label("System Prompt", systemImage: "text.bubble")
-                    }
-
                 ClaudeSettingsPane(settings: settings)
                     .tabItem {
                         Label("Claude", systemImage: "laptopcomputer")
@@ -169,6 +164,19 @@ private struct ProviderEditor: View {
                     .font(.system(.caption, design: .monospaced))
                     .frame(minHeight: 54)
             }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("System Prompt Injection")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextEditor(text: $provider.systemPromptInjection)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(minHeight: 88)
+                Text("Appended to this provider's upstream system prompt. Keep it stable for prompt/context cache; avoid timestamps, random values, session IDs, or live status.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(.vertical, 8)
     }
@@ -291,33 +299,6 @@ private struct VisionSettingsPane: View {
                     value: settings.visionProviderAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Optional, not configured" : "Configured",
                     isAttention: false
                 )
-            }
-        }
-    }
-}
-
-private struct SystemPromptSettingsPane: View {
-    @ObservedObject var settings: ProxySettingsStore
-
-    var body: some View {
-        NativeSettingsForm(settings: settings) {
-            Section("Prefix (injected before system prompt)") {
-                TextEditor(text: $settings.systemPromptPrefix)
-                    .font(.system(.body, design: .monospaced))
-                    .frame(minHeight: 120)
-            }
-
-            Section("Suffix (injected after system prompt)") {
-                TextEditor(text: $settings.systemPromptSuffix)
-                    .font(.system(.body, design: .monospaced))
-                    .frame(minHeight: 120)
-            }
-
-            Section("Help") {
-                Text("These are prepended/appended to the system prompt before forwarding upstream. Leave empty to disable injection. Use for Think Max instructions, style anchors, or anti-loop guards.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

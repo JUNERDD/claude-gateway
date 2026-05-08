@@ -63,6 +63,19 @@ final class ProxySettingsStoreProgressTests: XCTestCase {
         XCTAssertTrue(store.statusMessage.contains("Base URL"))
     }
 
+    func testAddedProviderStartsWithEmptySystemPromptInjection() throws {
+        let urls = try makeTemporaryStoreURLs()
+        let store = ProxySettingsStore(
+            configURL: urls.config,
+            secretsURL: urls.secrets,
+            installRuntimeOnInit: false
+        )
+
+        store.addProvider()
+
+        XCTAssertEqual(store.providers.last?.systemPromptInjection, "")
+    }
+
     private func makeTemporaryStoreURLs() throws -> (config: URL, secrets: URL) {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("ClaudeGatewayTests-\(UUID().uuidString)", isDirectory: true)

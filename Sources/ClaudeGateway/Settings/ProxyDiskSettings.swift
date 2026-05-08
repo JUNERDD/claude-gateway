@@ -13,8 +13,6 @@ struct ProxyDiskSettings: Codable {
     var visionProvider: String
     var visionProviderModel: String
     var visionProviderBaseURL: String
-    var systemPromptPrefix: String
-    var systemPromptSuffix: String
 
     static let defaultModelRoutes = GatewayConfigurationDefaults.modelRoutes
 
@@ -27,9 +25,7 @@ struct ProxyDiskSettings: Codable {
         modelRoutes: defaultModelRoutes,
         visionProvider: "auto",
         visionProviderModel: "",
-        visionProviderBaseURL: "",
-        systemPromptPrefix: "",
-        systemPromptSuffix: ""
+        visionProviderBaseURL: ""
     )
 
     static let supportedVisionProviders = [
@@ -53,8 +49,6 @@ struct ProxyDiskSettings: Codable {
         case visionProvider
         case visionProviderModel
         case visionProviderBaseURL
-        case systemPromptPrefix
-        case systemPromptSuffix
     }
 
     init(
@@ -66,9 +60,7 @@ struct ProxyDiskSettings: Codable {
         modelRoutes: [GatewayModelRoute],
         visionProvider: String,
         visionProviderModel: String,
-        visionProviderBaseURL: String,
-        systemPromptPrefix: String,
-        systemPromptSuffix: String
+        visionProviderBaseURL: String
     ) {
         self.host = host
         self.port = port
@@ -79,8 +71,6 @@ struct ProxyDiskSettings: Codable {
         self.visionProvider = Self.normalizedVisionProvider(visionProvider)
         self.visionProviderModel = visionProviderModel
         self.visionProviderBaseURL = visionProviderBaseURL
-        self.systemPromptPrefix = systemPromptPrefix
-        self.systemPromptSuffix = systemPromptSuffix
     }
 
     init(from decoder: Decoder) throws {
@@ -99,8 +89,6 @@ struct ProxyDiskSettings: Codable {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? Self.defaults.visionProviderModel
         visionProviderBaseURL = try container.decodeIfPresent(String.self, forKey: .visionProviderBaseURL)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? Self.defaults.visionProviderBaseURL
-        systemPromptPrefix = try container.decodeIfPresent(String.self, forKey: .systemPromptPrefix) ?? Self.defaults.systemPromptPrefix
-        systemPromptSuffix = try container.decodeIfPresent(String.self, forKey: .systemPromptSuffix) ?? Self.defaults.systemPromptSuffix
     }
 
     func encode(to encoder: Encoder) throws {
@@ -114,8 +102,6 @@ struct ProxyDiskSettings: Codable {
         try container.encode(visionProvider, forKey: .visionProvider)
         try container.encode(visionProviderModel, forKey: .visionProviderModel)
         try container.encode(visionProviderBaseURL, forKey: .visionProviderBaseURL)
-        try container.encode(systemPromptPrefix, forKey: .systemPromptPrefix)
-        try container.encode(systemPromptSuffix, forKey: .systemPromptSuffix)
     }
 
     func provider(id: String) -> GatewayProvider? {

@@ -61,19 +61,53 @@ public struct GatewayProvider: Codable, Equatable, Identifiable {
     public var baseURL: String
     public var auth: GatewayProviderAuth
     public var defaultHeaders: [String: String]
+    public var systemPromptInjection: String
 
     public init(
         id: String,
         displayName: String,
         baseURL: String,
         auth: GatewayProviderAuth = GatewayProviderAuth(),
-        defaultHeaders: [String: String] = [:]
+        defaultHeaders: [String: String] = [:],
+        systemPromptInjection: String = ""
     ) {
         self.id = id.trimmingCharacters(in: .whitespacesAndNewlines)
         self.displayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         self.baseURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         self.auth = auth
         self.defaultHeaders = defaultHeaders
+        self.systemPromptInjection = systemPromptInjection
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case displayName
+        case baseURL
+        case auth
+        case defaultHeaders
+        case systemPromptInjection
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try container.decode(String.self, forKey: .id),
+            displayName: try container.decode(String.self, forKey: .displayName),
+            baseURL: try container.decode(String.self, forKey: .baseURL),
+            auth: try container.decodeIfPresent(GatewayProviderAuth.self, forKey: .auth) ?? GatewayProviderAuth(),
+            defaultHeaders: try container.decodeIfPresent([String: String].self, forKey: .defaultHeaders) ?? [:],
+            systemPromptInjection: try container.decodeIfPresent(String.self, forKey: .systemPromptInjection) ?? ""
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(displayName, forKey: .displayName)
+        try container.encode(baseURL, forKey: .baseURL)
+        try container.encode(auth, forKey: .auth)
+        try container.encode(defaultHeaders, forKey: .defaultHeaders)
+        try container.encode(systemPromptInjection, forKey: .systemPromptInjection)
     }
 
     public var nameForDisplay: String {

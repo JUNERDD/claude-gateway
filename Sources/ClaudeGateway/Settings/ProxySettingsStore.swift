@@ -21,8 +21,6 @@ final class ProxySettingsStore: ObservableObject {
     @Published var visionProvider: String = ProxyDiskSettings.defaults.visionProvider
     @Published var visionProviderModel: String = ProxyDiskSettings.defaults.visionProviderModel
     @Published var visionProviderBaseURL: String = ProxyDiskSettings.defaults.visionProviderBaseURL
-    @Published var systemPromptPrefix: String = ProxyDiskSettings.defaults.systemPromptPrefix
-    @Published var systemPromptSuffix: String = ProxyDiskSettings.defaults.systemPromptSuffix
     @Published var visionProviderAPIKey: String = ""
     @Published var localGatewayKey: String = ""
     @Published var statusMessage: String = ""
@@ -125,8 +123,6 @@ final class ProxySettingsStore: ObservableObject {
         visionProvider = disk.visionProvider
         visionProviderModel = disk.visionProviderModel
         visionProviderBaseURL = disk.visionProviderBaseURL
-        systemPromptPrefix = disk.systemPromptPrefix
-        systemPromptSuffix = disk.systemPromptSuffix
 
         let secrets = readSecrets()
         localGatewayKey = secrets.localGatewayKey.isEmpty ? BundledRuntimeInstaller.generateLocalGatewayKey() : secrets.localGatewayKey
@@ -377,9 +373,7 @@ final class ProxySettingsStore: ObservableObject {
             modelRoutes: cleanRoutes,
             visionProvider: cleanVisionProvider,
             visionProviderModel: cleanVisionModel,
-            visionProviderBaseURL: cleanVisionBaseURL,
-            systemPromptPrefix: systemPromptPrefix,
-            systemPromptSuffix: systemPromptSuffix
+            visionProviderBaseURL: cleanVisionBaseURL
         )
     }
 
@@ -417,7 +411,8 @@ final class ProxySettingsStore: ObservableObject {
                 displayName: displayName.isEmpty ? id : displayName,
                 baseURL: baseURL,
                 auth: GatewayProviderAuth(type: authType, customHeaderName: provider.auth.customHeaderName),
-                defaultHeaders: provider.defaultHeaders
+                defaultHeaders: provider.defaultHeaders,
+                systemPromptInjection: provider.systemPromptInjection
             )
         }
     }
@@ -452,9 +447,7 @@ final class ProxySettingsStore: ObservableObject {
             modelRoutes: decoded.modelRoutes.isEmpty ? ProxyDiskSettings.defaultModelRoutes : decoded.modelRoutes,
             visionProvider: decoded.visionProvider,
             visionProviderModel: decoded.visionProviderModel.trimmingCharacters(in: .whitespacesAndNewlines),
-            visionProviderBaseURL: decoded.visionProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines),
-            systemPromptPrefix: decoded.systemPromptPrefix,
-            systemPromptSuffix: decoded.systemPromptSuffix
+            visionProviderBaseURL: decoded.visionProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         )
     }
 

@@ -32,11 +32,10 @@
       "baseURL": "",
       "defaultHeaders": {},
       "displayName": "Custom Anthropic-compatible",
-      "id": "custom"
+      "id": "custom",
+      "systemPromptInjection": ""
     }
   ],
-  "systemPromptPrefix": "",
-  "systemPromptSuffix": "",
   "visionProvider": "auto",
   "visionProviderBaseURL": "",
   "visionProviderModel": ""
