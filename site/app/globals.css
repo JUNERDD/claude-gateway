@@ -279,7 +279,7 @@ p {
 
 .hero-actions {
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 18px;
 }
 
 .primary-action,
@@ -587,7 +587,7 @@ p {
 
 .route-endpoint-badge {
   position: absolute;
-  bottom: -28px;
+  bottom: -38px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 3;
