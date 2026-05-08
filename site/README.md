@@ -18,7 +18,16 @@ pnpm build
 
 ## Vercel
 
-Create a Vercel project with this directory as the root:
+Use Vercel Git Integration for automatic deployments from GitHub.
+
+Connect the Vercel project to this repository:
+
+```text
+Repository: JUNERDD/claude-deepseek-gateway
+Production Branch: main
+```
+
+Configure the Vercel project with this directory as the root:
 
 ```text
 Root Directory: site
@@ -27,25 +36,26 @@ Install Command: pnpm install --frozen-lockfile
 Output Directory: .next
 ```
 
+With Git Integration enabled:
+
+- Pushes to `main` create production deployments.
+- Pull requests and non-production branches create preview deployments.
+
 The linked production URL is:
 
 ```text
 https://claude-deepseek-gateway.vercel.app
 ```
 
-CI/CD deployments are handled by `.github/workflows/vercel.yml`.
+The Vercel CLI can help connect the current project to Git Integration:
 
-Required GitHub repository variable values:
-
-```text
-VERCEL_ORG_ID
-VERCEL_PROJECT_ID
+```bash
+pnpm dlx vercel@latest login
+pnpm dlx vercel@latest link --project claude-deepseek-gateway
+pnpm dlx vercel@latest git connect
+pnpm dlx vercel@latest git ls
 ```
 
-Required GitHub repository secret:
-
-```text
-VERCEL_TOKEN
-```
+GitHub App authorization may still open in the browser if Vercel does not already have repository access.
 
 The site intentionally does not include custom analytics scripts or cookies.
