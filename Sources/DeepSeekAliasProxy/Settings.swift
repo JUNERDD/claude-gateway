@@ -10,6 +10,8 @@ struct ProxySettings {
     var visionProvider: String = "auto"
     var visionProviderModel: String = ""
     var visionProviderBaseURL: String = ""
+    var systemPromptPrefix: String = ""
+    var systemPromptSuffix: String = ""
     var advertisedModels: [String] = [
         "claude-opus-4-7",
         "claude-sonnet-4-6",
@@ -65,6 +67,12 @@ final class SettingsLoader {
             }
             if let value = cleanString(object["visionProviderBaseURL"]) {
                 settings.visionProviderBaseURL = value
+            }
+            if let value = object["systemPromptPrefix"] as? String {
+                settings.systemPromptPrefix = value
+            }
+            if let value = object["systemPromptSuffix"] as? String {
+                settings.systemPromptSuffix = value
             }
             if let models = object["advertisedModels"] as? [String] {
                 let cleaned = uniqueNonEmpty(models)

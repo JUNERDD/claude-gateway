@@ -26,6 +26,11 @@ struct SettingsView: View {
                     Label("Vision", systemImage: "eye")
                 }
 
+            SystemPromptSettingsPane(settings: settings)
+                .tabItem {
+                    Label("System Prompt", systemImage: "text.bubble")
+                }
+
             ClaudeSettingsPane(settings: settings)
                 .tabItem {
                     Label("Claude", systemImage: "laptopcomputer")
@@ -231,6 +236,33 @@ private struct VisionSettingsPane: View {
                     value: settings.visionProviderAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Optional, not configured" : "Configured",
                     isAttention: false
                 )
+            }
+        }
+    }
+}
+
+private struct SystemPromptSettingsPane: View {
+    @ObservedObject var settings: ProxySettingsStore
+
+    var body: some View {
+        NativeSettingsForm(settings: settings) {
+            Section("Prefix (injected before system prompt)") {
+                TextEditor(text: $settings.systemPromptPrefix)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(minHeight: 120)
+            }
+
+            Section("Suffix (injected after system prompt)") {
+                TextEditor(text: $settings.systemPromptSuffix)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(minHeight: 120)
+            }
+
+            Section("Help") {
+                Text("These are prepended/appended to the system prompt before forwarding to DeepSeek. Leave empty to disable injection. Use for Think Max instructions, style anchors, or anti-loop guards.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

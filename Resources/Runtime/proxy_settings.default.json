@@ -7,6 +7,8 @@
   "visionProvider": "auto",
   "visionProviderModel": "",
   "visionProviderBaseURL": "",
+  "systemPromptPrefix": "",
+  "systemPromptSuffix": "",
   "advertisedModels": [
     "claude-opus-4-7",
     "claude-sonnet-4-6",

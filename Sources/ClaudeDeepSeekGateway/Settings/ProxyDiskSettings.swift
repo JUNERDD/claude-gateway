@@ -11,6 +11,8 @@ struct ProxyDiskSettings: Codable {
     var visionProvider: String
     var visionProviderModel: String
     var visionProviderBaseURL: String
+    var systemPromptPrefix: String
+    var systemPromptSuffix: String
     var advertisedModels: [String]
 
     static let defaultAdvertisedModels = [
@@ -28,6 +30,8 @@ struct ProxyDiskSettings: Codable {
         visionProvider: "auto",
         visionProviderModel: "",
         visionProviderBaseURL: "",
+        systemPromptPrefix: "",
+        systemPromptSuffix: "",
         advertisedModels: defaultAdvertisedModels
     )
 
@@ -47,6 +51,8 @@ struct ProxyDiskSettings: Codable {
         visionProvider: String,
         visionProviderModel: String,
         visionProviderBaseURL: String,
+        systemPromptPrefix: String,
+        systemPromptSuffix: String,
         advertisedModels: [String]
     ) {
         self.host = host
@@ -57,6 +63,8 @@ struct ProxyDiskSettings: Codable {
         self.visionProvider = Self.normalizedVisionProvider(visionProvider)
         self.visionProviderModel = visionProviderModel
         self.visionProviderBaseURL = visionProviderBaseURL
+        self.systemPromptPrefix = systemPromptPrefix
+        self.systemPromptSuffix = systemPromptSuffix
         self.advertisedModels = advertisedModels
     }
 
@@ -69,6 +77,8 @@ struct ProxyDiskSettings: Codable {
         case visionProvider
         case visionProviderModel
         case visionProviderBaseURL
+        case systemPromptPrefix
+        case systemPromptSuffix
         case advertisedModels
     }
 
@@ -85,6 +95,8 @@ struct ProxyDiskSettings: Codable {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? Self.defaults.visionProviderModel
         visionProviderBaseURL = try container.decodeIfPresent(String.self, forKey: .visionProviderBaseURL)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? Self.defaults.visionProviderBaseURL
+        systemPromptPrefix = try container.decodeIfPresent(String.self, forKey: .systemPromptPrefix) ?? Self.defaults.systemPromptPrefix
+        systemPromptSuffix = try container.decodeIfPresent(String.self, forKey: .systemPromptSuffix) ?? Self.defaults.systemPromptSuffix
         advertisedModels = try container.decodeIfPresent([String].self, forKey: .advertisedModels) ?? Self.defaultAdvertisedModels
     }
 
@@ -98,6 +110,8 @@ struct ProxyDiskSettings: Codable {
         try container.encode(visionProvider, forKey: .visionProvider)
         try container.encode(visionProviderModel, forKey: .visionProviderModel)
         try container.encode(visionProviderBaseURL, forKey: .visionProviderBaseURL)
+        try container.encode(systemPromptPrefix, forKey: .systemPromptPrefix)
+        try container.encode(systemPromptSuffix, forKey: .systemPromptSuffix)
         try container.encode(advertisedModels, forKey: .advertisedModels)
     }
 

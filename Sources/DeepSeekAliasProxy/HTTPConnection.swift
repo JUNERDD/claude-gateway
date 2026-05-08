@@ -103,17 +103,7 @@ final class HTTPConnection {
 
     private func writeTokenEstimate(_ request: HTTPRequest) {
         let payload = (try? JSONSerialization.jsonObject(with: request.body) as? [String: Any]) ?? [:]
-        let sanitizedPayload = AnthropicPayloadSanitizer.sanitizedForTokenEstimate(payload) as? [String: Any] ?? payload
-        let imageTokens = AnthropicPayloadSanitizer.imageBlockCount(in: payload) * AnthropicPayloadSanitizer.estimatedImageTokens
-        let relevant: [String: Any?] = [
-            "system": sanitizedPayload["system"],
-            "messages": sanitizedPayload["messages"],
-            "tools": sanitizedPayload["tools"],
-            "thinking": sanitizedPayload["thinking"],
-            "tool_choice": sanitizedPayload["tool_choice"],
-        ]
-        let data = (try? JSONSerialization.data(withJSONObject: relevant.compactMapValues { $0 })) ?? Data()
-        let tokens = max(1, Int(ceil(Double(data.count) / 3.0)) + imageTokens)
+        let tokens = estimatedInputTokens(for: payload, settings: SettingsLoader.shared.load())
         writeLoggedJSON(status: 200, payload: ["input_tokens": tokens], request: request, responseFields: [
             "inputTokens": tokens,
         ])
@@ -257,6 +247,8 @@ final class HTTPConnection {
                 fputs("model rewrite: \(original) -> \(target)\n", stderr)
             }
         }
+
+        payload = payloadByInjectingSystemPrompt(into: payload, settings: settings)
 
         guard let body = try? JSONSerialization.data(withJSONObject: payload) else {
             writeLoggedJSON(status: 400, payload: [

@@ -34,6 +34,8 @@ final class ProxySettingsErrorTests: XCTestCase {
             visionProvider: "dashscope-anthropic",
             visionProviderModel: "qwen3-vl-flash",
             visionProviderBaseURL: "https://dashscope.aliyuncs.com/apps/anthropic",
+            systemPromptPrefix: "",
+            systemPromptSuffix: "",
             advertisedModels: ["claude-sonnet-4-6"]
         )
 

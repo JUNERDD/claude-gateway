@@ -17,6 +17,8 @@ final class ProxySettingsStore: ObservableObject {
     @Published var visionProvider: String = ProxyDiskSettings.defaults.visionProvider
     @Published var visionProviderModel: String = ProxyDiskSettings.defaults.visionProviderModel
     @Published var visionProviderBaseURL: String = ProxyDiskSettings.defaults.visionProviderBaseURL
+    @Published var systemPromptPrefix: String = ProxyDiskSettings.defaults.systemPromptPrefix
+    @Published var systemPromptSuffix: String = ProxyDiskSettings.defaults.systemPromptSuffix
     @Published var advertisedModelsText: String = ProxyDiskSettings.defaultAdvertisedModels.joined(separator: "\n")
     @Published var deepSeekAPIKey: String = ""
     @Published var visionProviderAPIKey: String = ""
@@ -100,6 +102,8 @@ final class ProxySettingsStore: ObservableObject {
         visionProvider = disk.visionProvider
         visionProviderModel = disk.visionProviderModel
         visionProviderBaseURL = disk.visionProviderBaseURL
+        systemPromptPrefix = disk.systemPromptPrefix
+        systemPromptSuffix = disk.systemPromptSuffix
         advertisedModelsText = disk.advertisedModels.joined(separator: "\n")
 
         let secrets = readSecrets()
@@ -290,6 +294,8 @@ final class ProxySettingsStore: ObservableObject {
             visionProvider: cleanVisionProvider,
             visionProviderModel: cleanVisionModel,
             visionProviderBaseURL: cleanVisionBaseURL,
+            systemPromptPrefix: systemPromptPrefix,
+            systemPromptSuffix: systemPromptSuffix,
             advertisedModels: models
         )
     }
@@ -309,6 +315,8 @@ final class ProxySettingsStore: ObservableObject {
             visionProvider: decoded.visionProvider,
             visionProviderModel: decoded.visionProviderModel.trimmingCharacters(in: .whitespacesAndNewlines),
             visionProviderBaseURL: decoded.visionProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines),
+            systemPromptPrefix: decoded.systemPromptPrefix,
+            systemPromptSuffix: decoded.systemPromptSuffix,
             advertisedModels: decoded.advertisedModels.isEmpty ? ProxyDiskSettings.defaultAdvertisedModels : decoded.advertisedModels
         )
     }

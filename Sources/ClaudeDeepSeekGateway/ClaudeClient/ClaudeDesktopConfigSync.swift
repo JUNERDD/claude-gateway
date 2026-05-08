@@ -859,6 +859,8 @@ enum ClaudeDesktopConfigSync {
             visionProvider: decoded.visionProvider,
             visionProviderModel: decoded.visionProviderModel.trimmingCharacters(in: .whitespacesAndNewlines),
             visionProviderBaseURL: decoded.visionProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines),
+            systemPromptPrefix: decoded.systemPromptPrefix,
+            systemPromptSuffix: decoded.systemPromptSuffix,
             advertisedModels: decoded.advertisedModels.isEmpty ? ProxyDiskSettings.defaultAdvertisedModels : decoded.advertisedModels
         )
     }

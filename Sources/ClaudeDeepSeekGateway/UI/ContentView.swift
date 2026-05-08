@@ -11,12 +11,13 @@ private enum MainWindowLayout {
 struct ContentView: View {
     @ObservedObject var settings: ProxySettingsStore
     @ObservedObject var onboarding: OnboardingCoordinator
-    @StateObject private var runner = ProxyController()
+    @ObservedObject var runner: ProxyController
+    @ObservedObject var navigation: GatewayNavigationStore
     @StateObject private var dashboard = GatewayDashboardStore()
     @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
 
     @State private var didAutoStart = false
-    @State private var selectedSection: GatewaySection = .overview
     @State private var selectedRange: GatewayDashboardRange = .oneMinute
 
     private let refreshTimer = Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()
@@ -24,6 +25,7 @@ struct ContentView: View {
     var body: some View {
         mainContent
         .frame(minWidth: 1120, minHeight: 760)
+        .background(MainWindowBehavior())
         .onAppear {
             guard !didAutoStart else { return }
             didAutoStart = true
@@ -35,6 +37,7 @@ struct ContentView: View {
                 runner.refreshStatus()
             }
             onboarding.presentIfNeeded()
+            wireStatusBarManager()
         }
         .onReceive(refreshTimer) { _ in
             if onboarding.isPresented {
@@ -42,6 +45,7 @@ struct ContentView: View {
             }
             runner.refreshStatus()
             dashboard.reload(from: runner.logStore, range: selectedRange)
+            StatusBarManager.shared.updateStatus(running: runner.isRunning)
         }
         .onChange(of: selectedRange) { _, range in
             dashboard.reload(from: runner.logStore, range: range)
@@ -69,7 +73,7 @@ struct ContentView: View {
     private var mainContent: some View {
         NavigationSplitView {
             SidebarView(
-                selectedSection: $selectedSection,
+                selectedSection: $navigation.selectedSection,
                 settings: settings,
                 runner: runner,
                 snapshot: dashboard.snapshot
@@ -77,7 +81,7 @@ struct ContentView: View {
             .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 280)
         } detail: {
             detailContent
-                .navigationTitle(selectedSection.title)
+                .navigationTitle(navigation.selectedSection.title)
                 .safeAreaInset(edge: .top, spacing: 0) {
                     Color.clear.frame(height: MainWindowLayout.toolbarOverlayCompensation)
                 }
@@ -142,7 +146,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             if !settings.statusMessage.isEmpty, !onboarding.isPresented {
                 SettingsStatusBanner(settings: settings, recoverySection: statusRecoverySection) { section in
-                    selectedSection = section
+                    navigation.selectedSection = section
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 12)
@@ -159,7 +163,7 @@ struct ContentView: View {
 
     @ViewBuilder
     private var detailView: some View {
-        switch selectedSection {
+        switch navigation.selectedSection {
         case .overview:
             OverviewPage(
                 settings: settings,
@@ -252,9 +256,34 @@ struct ContentView: View {
         runner.refreshStatus()
         dashboard.reload(from: runner.logStore, range: selectedRange)
     }
+
+    private func wireStatusBarManager() {
+        let manager = StatusBarManager.shared
+        manager.onStartGateway = { [weak runner] in
+            runner?.start()
+            runner?.refreshStatus()
+        }
+        manager.onStopGateway = { [weak runner] in
+            runner?.stop()
+            runner?.refreshStatus()
+        }
+        manager.onOpenSection = { [weak navigation] section in
+            navigation?.selectedSection = section
+            openWindow(id: "main")
+            MainWindowPresenter.showExistingMainWindow()
+            DispatchQueue.main.async {
+                MainWindowPresenter.showExistingMainWindow()
+            }
+        }
+    }
 }
 
-private enum GatewaySection: String, CaseIterable, Identifiable {
+@MainActor
+final class GatewayNavigationStore: ObservableObject {
+    @Published var selectedSection: GatewaySection = .overview
+}
+
+enum GatewaySection: String, CaseIterable, Identifiable {
     case overview
     case requests
     case issues
