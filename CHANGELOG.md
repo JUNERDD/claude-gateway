@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 1.0.18 - 2026-05-09
+
+### Changed
+
+- Enhanced DeepSeek V4 Pro Claude Code prompt with detailed API limitation notices, available tool guidance, context accumulation tips, and effort-level awareness.
 
 ## 1.0.17 - 2026-05-09
 
