@@ -11,10 +11,14 @@ struct ClaudeConfigSyncReport {
     var updatedClaudeCodeSettings: [String] = []
     var createdClaudeCodeSettings: [String] = []
     var unchangedClaudeCodeSettings: [String] = []
+    var updatedClaudeCodePromptFiles: [String] = []
+    var createdClaudeCodePromptFiles: [String] = []
+    var unchangedClaudeCodePromptFiles: [String] = []
     var installedClaudeMCPServers: [String] = []
     var unchangedClaudeMCPServers: [String] = []
     var backups: [String] = []
     var refreshedCaches: [String] = []
+    var claudeCodeAppendPromptCommands: [String] = []
     var warnings: [String] = []
 
     var userMessage: String {
@@ -46,6 +50,16 @@ struct ClaudeConfigSyncReport {
             refreshedCaches.isEmpty
         {
             parts.append("Claude Code 配置已匹配。")
+        }
+        if !updatedClaudeCodePromptFiles.isEmpty || !createdClaudeCodePromptFiles.isEmpty {
+            parts.append("已同步 Claude Code prompt 文件。")
+        } else if !unchangedClaudeCodePromptFiles.isEmpty,
+            updated.isEmpty,
+            created.isEmpty,
+            updatedClaudeCodeSettings.isEmpty,
+            createdClaudeCodeSettings.isEmpty
+        {
+            parts.append("Claude Code prompt 文件已匹配。")
         }
         if !installedClaudeMCPServers.isEmpty {
             parts.append("已同步 \(installedClaudeMCPServers.count) 个 Claude MCP Server。")
@@ -84,6 +98,10 @@ struct ClaudeConfigSyncReport {
         appendSection("Claude Code 已更新", updatedClaudeCodeSettings, to: &lines)
         appendSection("Claude Code 已创建", createdClaudeCodeSettings, to: &lines)
         appendSection("Claude Code 已匹配", unchangedClaudeCodeSettings, to: &lines)
+        appendSection("Claude Code prompt 已更新", updatedClaudeCodePromptFiles, to: &lines)
+        appendSection("Claude Code prompt 已创建", createdClaudeCodePromptFiles, to: &lines)
+        appendSection("Claude Code prompt 已匹配", unchangedClaudeCodePromptFiles, to: &lines)
+        appendSection("Claude Code append prompt 命令", claudeCodeAppendPromptCommands, to: &lines)
         appendSection("Claude MCP Server 已同步", installedClaudeMCPServers, to: &lines)
         appendSection("Claude MCP Server 已匹配", unchangedClaudeMCPServers, to: &lines)
         appendSection("备份", backups, to: &lines)
@@ -120,9 +138,8 @@ enum ClaudeDesktopConfigSync {
     }
 
     static func syncCurrentDiskConfig() -> ClaudeConfigSyncReport {
-        let settings = readDiskSettings()
-        let secrets = readSecrets()
-        return sync(settings: settings, localGatewayKey: secrets.localGatewayKey)
+        let config = readConfig()
+        return sync(settings: diskSettings(from: config), localGatewayKey: config.localGatewayKey)
     }
 
     static func sync(settings: ProxyDiskSettings, localGatewayKey: String) -> ClaudeConfigSyncReport {
@@ -176,6 +193,7 @@ enum ClaudeDesktopConfigSync {
             }
         }
 
+        syncClaudeCodePrompt(settings: settings, report: &report)
         syncClaudeCodeSettings(settings: settings, localGatewayKey: key, report: &report)
         refreshGatewayModelCache(report: &report)
         return report
@@ -567,9 +585,34 @@ enum ClaudeDesktopConfigSync {
         ]
     }
 
-    private static func syncClaudeCodeSettings(settings: ProxyDiskSettings, localGatewayKey: String, report: inout ClaudeConfigSyncReport) {
-        let settingsURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claude/settings.json")
+    private static func syncClaudeCodePrompt(settings: ProxyDiskSettings, report: inout ClaudeConfigSyncReport) {
+        do {
+            guard let result = try ClaudeCodePromptInstaller.install(provider: activeClaudeCodeProvider(settings: settings)) else {
+                return
+            }
+            switch result.status {
+            case .created:
+                report.createdClaudeCodePromptFiles.append(result.path)
+            case .updated:
+                report.updatedClaudeCodePromptFiles.append(result.path)
+            case .unchanged:
+                report.unchangedClaudeCodePromptFiles.append(result.path)
+            }
+            if let backupPath = result.backupPath {
+                report.backups.append(backupPath)
+            }
+            report.claudeCodeAppendPromptCommands = [result.command]
+        } catch {
+            report.warnings.append("Claude Code prompt 文件同步失败：\(error.localizedDescription)")
+        }
+    }
+
+    static func syncClaudeCodeSettings(
+        settings: ProxyDiskSettings,
+        localGatewayKey: String,
+        report: inout ClaudeConfigSyncReport,
+        settingsURL: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/settings.json")
+    ) {
         let existed = FileManager.default.fileExists(atPath: settingsURL.path)
 
         do {
@@ -601,6 +644,11 @@ enum ClaudeDesktopConfigSync {
             if (env["API_TIMEOUT_MS"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true {
                 env["API_TIMEOUT_MS"] = "3000000"
             }
+            mergeClaudeCodeEnvironment(
+                activeClaudeCodeProvider(settings: settings)?.claudeCode.extraEnvironment ?? [:],
+                into: &env,
+                report: &report
+            )
             object["env"] = env
 
             if let mcpServerConfig = visionMCPServerConfig(settings: settings, localGatewayKey: localGatewayKey) {
@@ -640,6 +688,35 @@ enum ClaudeDesktopConfigSync {
             }
         } catch {
             report.warnings.append("Claude Code settings.json 同步失败：\(error.localizedDescription)")
+        }
+    }
+
+    private static func activeClaudeCodeProvider(settings: ProxyDiskSettings) -> GatewayProvider? {
+        settings.provider(id: settings.defaultRoute.providerID)
+            ?? settings.provider(id: settings.defaultProviderID)
+            ?? settings.providers.first
+    }
+
+    private static func mergeClaudeCodeEnvironment(
+        _ recommended: [String: String],
+        into env: inout [String: Any],
+        report: inout ClaudeConfigSyncReport
+    ) {
+        for (key, value) in recommended.sorted(by: { $0.key < $1.key }) {
+            let cleanedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+            let cleanedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !cleanedKey.isEmpty, !cleanedValue.isEmpty else { continue }
+
+            if let existing = env[cleanedKey] as? String,
+                !existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            {
+                if existing != cleanedValue {
+                    report.warnings.append("Claude Code env \(cleanedKey) 已存在，保留当前值")
+                }
+                continue
+            }
+
+            env[cleanedKey] = cleanedValue
         }
     }
 
@@ -845,32 +922,25 @@ enum ClaudeDesktopConfigSync {
         return cleaned
     }
 
-    private static func readDiskSettings() -> ProxyDiskSettings {
-        guard let data = try? Data(contentsOf: BundledRuntimeInstaller.settingsURL),
-            let decoded = try? JSONDecoder().decode(ProxyDiskSettings.self, from: data)
-        else {
-            return .defaults
-        }
-        return ProxyDiskSettings(
-            host: decoded.host.isEmpty ? ProxyDiskSettings.defaults.host : decoded.host,
-            port: decoded.port,
-            providers: decoded.providers.isEmpty ? ProxyDiskSettings.defaults.providers : decoded.providers,
-            defaultProviderID: decoded.defaultProviderID.isEmpty ? ProxyDiskSettings.defaults.defaultProviderID : decoded.defaultProviderID,
-            defaultRoute: decoded.defaultRoute.providerID.isEmpty ? ProxyDiskSettings.defaults.defaultRoute : decoded.defaultRoute,
-            modelRoutes: decoded.modelRoutes.isEmpty ? ProxyDiskSettings.defaultModelRoutes : decoded.modelRoutes,
-            visionProvider: decoded.visionProvider,
-            visionProviderModel: decoded.visionProviderModel.trimmingCharacters(in: .whitespacesAndNewlines),
-            visionProviderBaseURL: decoded.visionProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        )
+    private static func readConfig() -> GatewayAppConfig {
+        guard let data = try? Data(contentsOf: BundledRuntimeInstaller.configURL),
+            let decoded = try? JSONDecoder().decode(GatewayAppConfig.self, from: data)
+        else { return GatewayAppConfig() }
+        return decoded
     }
 
-    private static func readSecrets() -> GatewaySecrets {
-        guard let data = try? Data(contentsOf: BundledRuntimeInstaller.secretsURL),
-            let decoded = try? JSONDecoder().decode(GatewaySecrets.self, from: data)
-        else {
-            return GatewaySecrets()
-        }
-        return decoded
+    private static func diskSettings(from config: GatewayAppConfig) -> ProxyDiskSettings {
+        return ProxyDiskSettings(
+            host: config.host.isEmpty ? ProxyDiskSettings.defaults.host : config.host,
+            port: config.port,
+            providers: config.providers.isEmpty ? ProxyDiskSettings.defaults.providers : config.providers,
+            defaultProviderID: config.defaultProviderID.isEmpty ? ProxyDiskSettings.defaults.defaultProviderID : config.defaultProviderID,
+            defaultRoute: config.defaultRoute.providerID.isEmpty ? ProxyDiskSettings.defaults.defaultRoute : config.defaultRoute,
+            modelRoutes: config.modelRoutes.isEmpty ? ProxyDiskSettings.defaultModelRoutes : config.modelRoutes,
+            visionProvider: config.visionProvider,
+            visionProviderModel: config.visionProviderModel.trimmingCharacters(in: .whitespacesAndNewlines),
+            visionProviderBaseURL: config.visionProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
     }
 
     private static func parseExportLine(_ line: String) -> (String, String)? {

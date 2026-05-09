@@ -13,8 +13,7 @@ err() { printf '%b%s%b\n' "$RED" "$*" "$NC" >&2; }
 
 cd "$HOME"
 CFG_DIR="${HOME}/.config/claude-gateway"
-SECRETS="${CFG_DIR}/secrets.json"
-SETTINGS="${CFG_DIR}/proxy_settings.json"
+CONFIG="${CFG_DIR}/config.json"
 BIN_PROXY="${HOME}/bin/claude-gateway-proxy.sh"
 PROXY_BIN="${CFG_DIR}/gateway_proxy"
 
@@ -44,11 +43,11 @@ probe_proxy() {
 }
 
 read_setting() {
-  /usr/bin/plutil -extract "$1" raw "$SETTINGS" 2>/dev/null || printf '%s\n' "$2"
+  /usr/bin/plutil -extract "$1" raw "$CONFIG" 2>/dev/null || printf '%s\n' "$2"
 }
 
 read_models_json() {
-  python3 - "$SETTINGS" <<'PY' 2>/dev/null || printf '%s\n' '["claude-opus-4-7","claude-sonnet-4-6","claude-haiku-4-5"]'
+  python3 - "$CONFIG" <<'PY' 2>/dev/null || printf '%s\n' '["claude-opus-4-7","claude-sonnet-4-6","claude-haiku-4-5"]'
 import json, sys
 with open(sys.argv[1], "r", encoding="utf-8") as handle:
     data = json.load(handle)
@@ -85,24 +84,24 @@ if [[ ! -x "$PROXY_BIN" ]]; then
   exit 1
 fi
 info "原生代理存在: $PROXY_BIN"
-info "代理配置: $SETTINGS"
+info "代理配置: $CONFIG"
 
-if [[ ! -f "$SECRETS" ]]; then
-  err "缺少: $SECRETS"
+if [[ ! -f "$CONFIG" ]]; then
+  err "缺少: $CONFIG"
   exit 1
 fi
 
-LOCAL_GATEWAY_KEY="$(/usr/bin/plutil -extract localGatewayKey raw "$SECRETS" 2>/dev/null || true)"
-PROVIDER_SECRET_COUNT="$(python3 - "$SECRETS" <<'PY' 2>/dev/null || printf '0\n'
+LOCAL_GATEWAY_KEY="$(/usr/bin/plutil -extract localGatewayKey raw "$CONFIG" 2>/dev/null || true)"
+PROVIDER_SECRET_COUNT="$(python3 - "$CONFIG" <<'PY' 2>/dev/null || printf '0\n'
 import json, sys
 with open(sys.argv[1], "r", encoding="utf-8") as handle:
     data = json.load(handle)
 print(sum(1 for secret in data.get("providerSecrets", {}).values() if str(secret.get("apiKey", "")).strip()))
 PY
 )"
-VISION_PROVIDER_API_KEY="$(/usr/bin/plutil -extract visionProviderAPIKey raw "$SECRETS" 2>/dev/null || true)"
+VISION_PROVIDER_API_KEY="$(/usr/bin/plutil -extract visionProviderAPIKey raw "$CONFIG" 2>/dev/null || true)"
 if [[ "$PROVIDER_SECRET_COUNT" == "0" ]]; then
-  warn "未发现 provider API key；请在 ${SECRETS} 的 providerSecrets 中配置上游凭据。"
+  warn "未发现 provider API key；请在 ${CONFIG} 的 providerSecrets 中配置上游凭据。"
 else
   info "已发现 providerSecrets（未显示具体值）。"
 fi
@@ -136,6 +135,7 @@ fi
 
 TEST_PORT=$((41000 + RANDOM % 500))
 export LOCAL_GATEWAY_KEY="${LOCAL_GATEWAY_KEY:-sk-doctor-test}"
+export GATEWAY_CONFIG_PATH="$CONFIG"
 info "冒烟测试：端口 ${TEST_PORT}（最多等待约 30s）…"
 GATEWAY_HOST=127.0.0.1 GATEWAY_PORT="$TEST_PORT" "$BIN_PROXY" >/tmp/claude-gateway-doctor.log 2>&1 &
 DPID=$!

@@ -22,8 +22,8 @@ final class OnboardingCoordinator: ObservableObject {
         presentationMode == .initial
     }
 
-    func presentIfNeeded() {
-        guard !hasDismissedInitialFlow else { return }
+    func presentIfNeeded(requiresSetup: Bool = false) {
+        guard requiresSetup || !hasDismissedInitialFlow else { return }
         presentationMode = .initial
         isPresented = true
     }

@@ -4,6 +4,7 @@ final class UpstreamForwarder: NSObject, URLSessionDataDelegate {
     private let fd: Int32
     private let requestID: String
     private let providerID: String
+    private let compatibilityProfileID: String
     private let startedAt = Date()
     private let done = DispatchSemaphore(value: 0)
     private var sentHeaders = false
@@ -14,10 +15,16 @@ final class UpstreamForwarder: NSObject, URLSessionDataDelegate {
     private var responseBodyPreview = Data()
     private let responsePreviewLimit = 2 * 1024 * 1024
 
-    init(fd: Int32, requestID: String, providerID: String) {
+    init(
+        fd: Int32,
+        requestID: String,
+        providerID: String,
+        compatibilityProfileID: String = ""
+    ) {
         self.fd = fd
         self.requestID = requestID
         self.providerID = providerID
+        self.compatibilityProfileID = compatibilityProfileID
     }
 
     func forward(_ request: URLRequest) {
@@ -115,8 +122,70 @@ final class UpstreamForwarder: NSObject, URLSessionDataDelegate {
                 event["outputTokens"] = outputTokens
             }
             logGatewayEvent(event)
+            if let issue = Self.detectProviderCompatibilityIssue(
+                status: statusCode,
+                bodyPreview: responseBodyPreview
+            ) {
+                logGatewayEvent([
+                    "type": "provider_compatibility_issue",
+                    "requestID": requestID,
+                    "providerID": providerID,
+                    "compatibilityProfileID": compatibilityProfileID,
+                    "status": statusCode,
+                    "category": issue.category,
+                    "message": issue.message,
+                    "recommendation": issue.recommendation,
+                ])
+            }
         }
         done.signal()
+    }
+
+    private static func detectProviderCompatibilityIssue(
+        status: Int,
+        bodyPreview: Data
+    ) -> (category: String, message: String, recommendation: String)? {
+        guard status >= 400,
+            let text = String(data: bodyPreview, encoding: .utf8),
+            !text.isEmpty
+        else {
+            return nil
+        }
+
+        let lower = text.lowercased()
+        if lower.contains("reasoning_content")
+            || lower.contains("thinking block")
+            || lower.contains("content[].thinking")
+            || lower.contains("thinking-mode")
+        {
+            return (
+                "thinking-round-trip",
+                "Upstream rejected the request because thinking/reasoning history was not preserved.",
+                "Use a provider route that preserves reasoning_content/thinking blocks, fix the adapter/proxy round trip, or switch this workflow to a compatible non-thinking route."
+            )
+        }
+
+        if lower.contains("anthropic-beta") || lower.contains("beta header") {
+            return (
+                "anthropic-beta",
+                "Upstream rejected an Anthropic beta or experimental header.",
+                "Set this provider's Anthropic Beta Header mode to strip, then retry with a fresh Claude Code session."
+            )
+        }
+
+        if lower.contains("tool_reference")
+            || lower.contains("server-side tool")
+            || lower.contains("unsupported tool")
+            || lower.contains("mcp")
+        {
+            return (
+                "tool-block-support",
+                "Upstream appears not to support one of the tool or MCP message blocks in this workflow.",
+                "Use local Claude Code tools where possible, disable unsupported server-side tool features, or route this workflow to a compatible provider."
+            )
+        }
+
+        return nil
     }
 
     private static func extractUsage(from data: Data) -> (inputTokens: Int?, outputTokens: Int?) {

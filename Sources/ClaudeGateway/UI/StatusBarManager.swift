@@ -178,7 +178,6 @@ final class StatusBarManager: ObservableObject {
     }
 
     @objc private func handleQuit() {
-        AppLifecycleState.isTerminating = true
-        NSApp.terminate(nil)
+        AppTerminationController.requestQuit()
     }
 }

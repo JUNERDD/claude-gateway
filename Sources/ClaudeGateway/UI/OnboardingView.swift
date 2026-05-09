@@ -1,4 +1,7 @@
+import AppKit
+import GatewayProxyCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct OnboardingView: View {
     @ObservedObject var settings: ProxySettingsStore
@@ -15,7 +18,7 @@ struct OnboardingView: View {
             Divider()
 
             HStack(spacing: 0) {
-                OnboardingStepList(selectedStep: selectedStep)
+                OnboardingStepList(selectedStep: selectedStep, steps: visibleSteps)
                     .frame(width: 190, alignment: .top)
                     .frame(maxHeight: .infinity, alignment: .top)
                     .background(Color(nsColor: .controlBackgroundColor).opacity(0.45))
@@ -51,6 +54,12 @@ struct OnboardingView: View {
             guard wasSyncing, !isSyncing, hasTriggeredSync else { return }
             onSyncCompleted()
         }
+        .onChange(of: settings.activeProviderUsesDeepSeekCompatibilityProfile) { _, _ in
+            normalizeSelectedStepIfNeeded()
+        }
+        .onChange(of: settings.visionSettingsAreValid) { _, _ in
+            normalizeSelectedStepIfNeeded()
+        }
     }
 
     private var header: some View {
@@ -65,14 +74,14 @@ struct OnboardingView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Claude Gateway Setup")
                     .font(.headline)
-                Text("Step \(selectedStep.rawValue + 1) of \(OnboardingStep.allCases.count)")
+                Text("Step \(selectedStepNumber) of \(visibleSteps.count)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
             Spacer()
 
-            ProgressView(value: Double(selectedStep.rawValue + 1), total: Double(OnboardingStep.allCases.count))
+            ProgressView(value: Double(selectedStepNumber), total: Double(visibleSteps.count))
                 .progressViewStyle(.linear)
                 .frame(width: 150)
         }
@@ -84,21 +93,91 @@ struct OnboardingView: View {
     private var stepContent: some View {
         switch selectedStep {
         case .welcome:
-            VStack(alignment: .leading, spacing: 12) {
-                OnboardingInfoRow(systemImage: "network", title: "Local endpoint", detail: "Claude connects to http://\(settings.host):\(settings.portText) on this Mac.")
-                OnboardingInfoRow(systemImage: "lock", title: "Separate secrets", detail: "Claude receives only the local gateway key. Provider keys remain in local app-managed secrets.")
-                OnboardingInfoRow(systemImage: "list.bullet.rectangle", title: "Monitor traffic", detail: "Requests, issues, logs, and runtime status remain available in the main window.")
-            }
-        case .secureKeys:
             VStack(alignment: .leading, spacing: 16) {
-                if let index = settings.providers.indices.first {
+                OnboardingFieldBlock(title: "Local Endpoint", detail: "Claude clients connect to this gateway endpoint on this Mac.") {
+                    HStack(alignment: .top, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("Address")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            TextField("127.0.0.1", text: $settings.host)
+                                .textFieldStyle(.roundedBorder)
+                                .accessibilityLabel("Listen Address")
+                        }
+
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("Port")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            TextField("4000", text: $settings.portText)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 110)
+                                .accessibilityLabel("Port")
+                        }
+                    }
+                }
+
+                OnboardingInfoRow(systemImage: "lock", title: "Local keys", detail: "Claude receives only the local gateway key. Provider keys stay in the local config file.")
+                OnboardingInfoRow(systemImage: "list.bullet.rectangle", title: "Monitor traffic", detail: "Requests, issues, logs, and runtime status remain available in the main window.")
+
+                OnboardingStatusNote(
+                    systemImage: settings.localEndpointIsComplete ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
+                    text: localEndpointStatusText,
+                    level: settings.localEndpointIsComplete ? .success : .warning
+                )
+
+                Button {
+                    importConfig()
+                } label: {
+                    Label("Import Config", systemImage: "square.and.arrow.down")
+                }
+            }
+        case .provider:
+            VStack(alignment: .leading, spacing: 16) {
+                if let index = primaryProviderIndex {
                     OnboardingFieldBlock(title: "Provider Base URL", detail: "Anthropic-compatible upstream endpoint.") {
                         TextField("https://provider.example.com/anthropic", text: $settings.providers[index].baseURL)
                             .textFieldStyle(.roundedBorder)
                             .accessibilityLabel("Provider Base URL")
                     }
 
-                    if settings.providers[index].auth.type != "none" {
+                    OnboardingFieldBlock(title: "Compatibility Profile", detail: "Provider-specific defaults for routes, Claude Code prompt, and compatibility handling.") {
+                        Picker("", selection: $settings.providers[index].compatibilityProfileID) {
+                            ForEach(GatewayProviderProfileCatalog.profiles) { profile in
+                                Text(profile.displayName).tag(profile.id)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(maxWidth: 260, alignment: .leading)
+                        .accessibilityLabel("Compatibility Profile")
+                        .onAppear {
+                            applyInitialProfileDefaultsIfNeeded(providerAt: index)
+                        }
+                        .onChange(of: settings.providers[index].compatibilityProfileID) { _, profileID in
+                            applyOnboardingCompatibilityProfile(profileID, providerAt: index)
+                        }
+                    }
+
+                    OnboardingFieldBlock(title: "Provider Auth", detail: "Authentication mode used for upstream requests.") {
+                        Picker("", selection: $settings.providers[index].auth.type) {
+                            ForEach(GatewayProviderAuth.supportedTypes, id: \.self) { type in
+                                Text(type).tag(type)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(maxWidth: 220, alignment: .leading)
+                        .accessibilityLabel("Provider Auth")
+                    }
+
+                    if settings.providers[index].auth.type == GatewayProviderAuth.customHeader {
+                        OnboardingFieldBlock(title: "Auth Header", detail: "Header name used for custom provider authentication.") {
+                            TextField("x-api-key", text: $settings.providers[index].auth.customHeaderName)
+                                .textFieldStyle(.roundedBorder)
+                                .accessibilityLabel("Auth Header")
+                        }
+                    }
+
+                    if providerShouldShowAPIKey(settings.providers[index]) {
                         OnboardingFieldBlock(title: "Provider API Key", detail: "Required by the selected provider auth mode.") {
                             SecureField("Provider key", text: settings.bindingForProviderAPIKey(settings.providers[index].id))
                                 .textFieldStyle(.roundedBorder)
@@ -122,14 +201,108 @@ struct OnboardingView: View {
                 }
 
                 OnboardingStatusNote(
-                    systemImage: providerReady ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
-                    text: providerReady ? "Required credentials are ready." : "Add a provider endpoint and API key to continue, or skip setup for now.",
-                    level: providerReady ? .success : .warning
+                    systemImage: providerCanContinue ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
+                    text: providerStatusText,
+                    level: providerCanContinue ? .success : .warning
+                )
+            }
+        case .modelRoutes:
+            VStack(alignment: .leading, spacing: 16) {
+                OnboardingFieldBlock(title: "Default Route", detail: "Fallback upstream model for unmapped Claude model names.") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        OnboardingProviderPicker(
+                            selection: $settings.defaultRouteProviderID,
+                            providers: settings.providers,
+                            accessibilityLabel: "Default Route Provider"
+                        )
+
+                        TextField("provider-default-model", text: $settings.defaultRouteModel)
+                            .textFieldStyle(.roundedBorder)
+                            .accessibilityLabel("Default Route Upstream Model")
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Model Routes")
+                        .font(.headline)
+
+                    ForEach(settings.modelRoutes.indices, id: \.self) { index in
+                        OnboardingRouteEditor(
+                            route: $settings.modelRoutes[index],
+                            providers: settings.providers,
+                            canRemove: settings.modelRoutes.count > 1
+                        ) {
+                            settings.removeModelRoute(at: index)
+                        }
+                    }
+
+                    HStack(spacing: 10) {
+                        Button {
+                            settings.addModelRoute()
+                        } label: {
+                            Label("Add Route", systemImage: "plus")
+                        }
+
+                        Button {
+                            settings.resetModelDefaults()
+                        } label: {
+                            Label("Reset Defaults", systemImage: "arrow.counterclockwise")
+                        }
+                    }
+                }
+
+                OnboardingStatusNote(
+                    systemImage: modelRoutesReady ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
+                    text: modelRoutesReady ? "Model routing is ready." : "Add at least one unique Claude alias and upstream model.",
+                    level: modelRoutesReady ? .success : .warning
+                )
+            }
+        case .vision:
+            VStack(alignment: .leading, spacing: 16) {
+                OnboardingInfoRow(
+                    systemImage: "eye",
+                    title: "Vision bridge for DeepSeek",
+                    detail: "DeepSeek handles the Claude-compatible text route. Configure a separate vision provider here for image inputs."
+                )
+
+                OnboardingFieldBlock(title: "Vision Provider", detail: "Choose the provider used by the Vision MCP bridge.") {
+                    Picker("", selection: $settings.visionProvider) {
+                        ForEach(ProxyDiskSettings.supportedVisionProviders, id: \.self) { provider in
+                            Text(provider).tag(provider)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 240, alignment: .leading)
+                    .accessibilityLabel("Vision Provider")
+                }
+
+                OnboardingFieldBlock(title: "Vision Model", detail: "Leave empty to use the selected provider's built-in default.") {
+                    TextField("qwen3-vl-flash", text: $settings.visionProviderModel)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityLabel("Vision Model")
+                }
+
+                OnboardingFieldBlock(title: "Vision Base URL", detail: "Optional custom http/https endpoint for the vision provider.") {
+                    TextField("https://dashscope.aliyuncs.com/compatible-mode/v1", text: $settings.visionProviderBaseURL)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityLabel("Vision Base URL")
+                }
+
+                OnboardingFieldBlock(title: "Vision Provider API Key", detail: "Only required when your selected vision provider needs a key.") {
+                    SecureField("Optional key", text: $settings.visionProviderAPIKey)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityLabel("Vision Provider API Key")
+                }
+
+                OnboardingStatusNote(
+                    systemImage: settings.visionSettingsAreValid ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
+                    text: visionStatusText,
+                    level: settings.visionSettingsAreValid ? .success : .warning
                 )
             }
         case .syncAndStart:
             VStack(alignment: .leading, spacing: 12) {
-                OnboardingChecklistRow(systemImage: "square.and.arrow.down", title: "Save settings and secrets", detail: "Writes local config and secrets files.")
+                OnboardingChecklistRow(systemImage: "square.and.arrow.down", title: "Save config", detail: "Writes the single local gateway config file.")
                 OnboardingChecklistRow(systemImage: "laptopcomputer", title: "Sync Claude clients", detail: "Updates Claude Desktop and Claude Code gateway configuration.")
                 OnboardingChecklistRow(systemImage: "play.fill", title: "Start background service", detail: "Starts the LaunchAgent so Claude can reach the gateway.")
 
@@ -212,17 +385,31 @@ struct OnboardingView: View {
                     Label("Continue", systemImage: "arrow.right")
                 }
                 .buttonStyle(.borderedProminent)
-            case .secureKeys:
+                .disabled(!settings.localEndpointIsComplete)
+            case .provider:
                 Button {
-                    if settings.localGatewayKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        settings.generateLocalGatewayKey()
-                    }
+                    continueFromProviderStep()
+                } label: {
+                    Label("Continue", systemImage: "arrow.right")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!providerCanContinue)
+            case .modelRoutes:
+                Button {
                     moveForward()
                 } label: {
                     Label("Continue", systemImage: "arrow.right")
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(!providerReady)
+                .disabled(!modelRoutesReady)
+            case .vision:
+                Button {
+                    moveForward()
+                } label: {
+                    Label("Continue", systemImage: "arrow.right")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!settings.visionSettingsAreValid)
             case .syncAndStart:
                 Button {
                     saveSyncAndStart()
@@ -230,7 +417,7 @@ struct OnboardingView: View {
                     Label("Save, Sync, and Start", systemImage: "arrow.triangle.2.circlepath")
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(!providerReady || settings.isPersistingAndSyncing)
+                .disabled(!settings.localEndpointIsComplete || !providerReady || !modelRoutesReady || !settings.visionSettingsAreValid || settings.isPersistingAndSyncing)
             case .verify:
                 if settings.isPersistingAndSyncing {
                     Button {} label: {
@@ -244,9 +431,9 @@ struct OnboardingView: View {
                     .disabled(true)
                 } else if hasTriggeredSync, settings.statusIsError {
                     Button {
-                        selectedStep = .secureKeys
+                        selectedStep = firstIncompleteStep
                     } label: {
-                        Label("Fix Credentials", systemImage: "key")
+                        Label("Fix Setup", systemImage: "wrench.and.screwdriver")
                     }
                     .buttonStyle(.borderedProminent)
                 } else if hasTriggeredSync, !settings.statusMessage.isEmpty {
@@ -270,14 +457,175 @@ struct OnboardingView: View {
         .frame(minWidth: 176, alignment: .trailing)
     }
 
-    private var providerReady: Bool {
-        guard let provider = settings.providers.first else { return false }
-        let baseURLReady = !provider.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if provider.auth.type == "none" {
-            return baseURLReady
+    private var primaryProviderIndex: Array<GatewayProvider>.Index? {
+        settings.providers.firstIndex { $0.id == settings.defaultProviderID } ?? settings.providers.indices.first
+    }
+
+    private var visibleSteps: [OnboardingStep] {
+        OnboardingStep.steps(includeVision: shouldShowVisionStep)
+    }
+
+    private var shouldShowVisionStep: Bool {
+        settings.activeProviderUsesDeepSeekCompatibilityProfile || !settings.visionSettingsAreValid
+    }
+
+    private var selectedStepNumber: Int {
+        (visibleSteps.firstIndex(of: selectedStep) ?? 0) + 1
+    }
+
+    private var firstIncompleteStep: OnboardingStep {
+        if !settings.localEndpointIsComplete { return .welcome }
+        if !providerReady { return .provider }
+        if !modelRoutesReady { return .modelRoutes }
+        if visibleSteps.contains(.vision), !settings.visionSettingsAreValid { return .vision }
+        return .syncAndStart
+    }
+
+    private var localEndpointStatusText: String {
+        let host = settings.host.trimmingCharacters(in: .whitespacesAndNewlines)
+        let portText = settings.portText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !host.isEmpty else {
+            return "Add a listen address before continuing."
         }
-        let keyReady = !(settings.providerAPIKeys[provider.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        return baseURLReady && keyReady
+        guard let port = Int(portText), (1...65535).contains(port) else {
+            return "Port must be a number from 1 to 65535."
+        }
+        return "Endpoint preview: http://\(host):\(port)"
+    }
+
+    private var visionStatusText: String {
+        guard settings.visionSettingsAreValid else {
+            return "Vision Base URL must be empty or a valid http/https URL."
+        }
+        let provider = settings.visionProvider.trimmingCharacters(in: .whitespacesAndNewlines)
+        let model = settings.visionProviderModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = settings.visionProviderAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if provider == "auto" {
+            return key.isEmpty ? "Auto mode will use available environment/config keys; text routing is unaffected." : "Auto mode is ready with a configured vision key."
+        }
+        if key.isEmpty {
+            return "\(provider) is selected; add a key now or configure one later before using image inputs."
+        }
+        return model.isEmpty ? "\(provider) is configured and will use its default vision model." : "\(provider) is configured with \(model)."
+    }
+
+    private var providerReady: Bool {
+        guard let index = primaryProviderIndex else { return false }
+        return providerIsReady(settings.providers[index])
+    }
+
+    private var providerCanContinue: Bool {
+        guard let index = primaryProviderIndex else { return false }
+        let provider = settings.providers[index]
+        return providerIsReady(provider) || providerCanBecomeReadyAfterApplyingProfile(provider)
+    }
+
+    private var providerStatusText: String {
+        guard let index = primaryProviderIndex else {
+            return "Add a provider to continue."
+        }
+        let provider = settings.providers[index]
+        if providerIsReady(provider) {
+            return "Provider credentials are ready."
+        }
+
+        let profile = GatewayProviderProfileCatalog.profile(id: provider.compatibilityProfileID)
+        if profileHasRecommendedDefaults(profile) {
+            if profile.recommendedAuth.requiresAPIKey {
+                let key = settings.providerAPIKeys[provider.id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if key.isEmpty {
+                    return "Add the provider API key required by \(profile.displayName)."
+                }
+            }
+            if providerCanBecomeReadyAfterApplyingProfile(provider) {
+                return "\(profile.displayName) defaults will be applied when you continue."
+            }
+        }
+
+        let baseURL = provider.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !validHTTPURL(baseURL) {
+            return "Add a valid http or https provider base URL."
+        }
+        if provider.auth.type == GatewayProviderAuth.customHeader, !customAuthHeaderReady(provider.auth.customHeaderName) {
+            return "Add a valid custom auth header name."
+        }
+        if provider.auth.requiresAPIKey {
+            let key = settings.providerAPIKeys[provider.id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if key.isEmpty {
+                return "Add the provider API key required by this auth mode."
+            }
+        }
+        return "Provider credentials are ready."
+    }
+
+    private var modelRoutesReady: Bool {
+        let providerIDs = Set(settings.providers.map(\.id))
+        guard providerIDs.contains(settings.defaultRouteProviderID) else { return false }
+        guard !settings.defaultRouteModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard !settings.modelRoutes.isEmpty else { return false }
+
+        var aliases = Set<String>()
+        for route in settings.modelRoutes {
+            let alias = route.alias.trimmingCharacters(in: .whitespacesAndNewlines)
+            let upstreamModel = route.upstreamModel.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !alias.isEmpty, !upstreamModel.isEmpty, providerIDs.contains(route.providerID) else {
+                return false
+            }
+            guard !aliases.contains(alias) else { return false }
+            aliases.insert(alias)
+        }
+        return true
+    }
+
+    private func providerIsReady(_ provider: GatewayProvider) -> Bool {
+        let baseURL = provider.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard validHTTPURL(baseURL) else { return false }
+        if provider.auth.type == GatewayProviderAuth.customHeader {
+            guard customAuthHeaderReady(provider.auth.customHeaderName) else { return false }
+        }
+        guard provider.auth.requiresAPIKey else { return true }
+        let key = settings.providerAPIKeys[provider.id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return !key.isEmpty
+    }
+
+    private func providerCanBecomeReadyAfterApplyingProfile(_ provider: GatewayProvider) -> Bool {
+        let profile = GatewayProviderProfileCatalog.profile(id: provider.compatibilityProfileID)
+        guard profileHasRecommendedDefaults(profile) else { return false }
+        guard validHTTPURL(profile.recommendedBaseURL) else { return false }
+        if profile.recommendedAuth.type == GatewayProviderAuth.customHeader {
+            guard customAuthHeaderReady(profile.recommendedAuth.customHeaderName) else { return false }
+        }
+        guard profile.recommendedAuth.requiresAPIKey else { return true }
+        let key = settings.providerAPIKeys[provider.id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return !key.isEmpty
+    }
+
+    private func providerShouldShowAPIKey(_ provider: GatewayProvider) -> Bool {
+        if provider.auth.type != GatewayProviderAuth.none {
+            return true
+        }
+        let profile = GatewayProviderProfileCatalog.profile(id: provider.compatibilityProfileID)
+        return profileHasRecommendedDefaults(profile) && profile.recommendedAuth.requiresAPIKey
+    }
+
+    private func profileHasRecommendedDefaults(_ profile: GatewayProviderCompatibilityProfile) -> Bool {
+        !profile.recommendedBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func customAuthHeaderReady(_ value: String) -> Bool {
+        let header = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !header.isEmpty && !GatewayProvider.gatewayManagedHeaders.contains(header.lowercased())
+    }
+
+    private func validHTTPURL(_ value: String) -> Bool {
+        guard let url = URL(string: value),
+            let scheme = url.scheme?.lowercased(),
+            ["http", "https"].contains(scheme),
+            url.host != nil
+        else {
+            return false
+        }
+        return true
     }
 
     private var displayStatusMessage: String {
@@ -286,6 +634,33 @@ struct OnboardingView: View {
             return String(message.dropFirst(prefix.count))
         }
         return message.isEmpty ? "Setup could not complete." : message
+    }
+
+    private func continueFromProviderStep() {
+        guard let index = primaryProviderIndex else { return }
+        let provider = settings.providers[index]
+        if providerCanBecomeReadyAfterApplyingProfile(provider) {
+            settings.applyCompatibilityProfile(provider.compatibilityProfileID, toProviderAt: index)
+        }
+        if settings.localGatewayKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            settings.generateLocalGatewayKey()
+        }
+        guard providerReady else { return }
+        moveForward()
+    }
+
+    private func applyOnboardingCompatibilityProfile(_ profileID: String, providerAt index: Int) {
+        guard settings.providers.indices.contains(index) else { return }
+        settings.applyCompatibilityProfile(profileID, toProviderAt: index)
+    }
+
+    private func applyInitialProfileDefaultsIfNeeded(providerAt index: Int) {
+        guard settings.providers.indices.contains(index) else { return }
+        let provider = settings.providers[index]
+        let profile = GatewayProviderProfileCatalog.profile(id: provider.compatibilityProfileID)
+        let baseURL = provider.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard profileHasRecommendedDefaults(profile), baseURL.isEmpty else { return }
+        settings.applyCompatibilityProfile(profile.id, toProviderAt: index)
     }
 
     private func saveSyncAndStart() {
@@ -298,13 +673,27 @@ struct OnboardingView: View {
     }
 
     private func moveForward() {
-        guard let next = selectedStep.next else { return }
+        guard let next = adjacentStep(offset: 1) else { return }
         selectedStep = next
     }
 
     private func moveBack() {
-        guard let previous = selectedStep.previous else { return }
+        guard let previous = adjacentStep(offset: -1) else { return }
         selectedStep = previous
+    }
+
+    private func adjacentStep(offset: Int) -> OnboardingStep? {
+        guard let index = visibleSteps.firstIndex(of: selectedStep) else {
+            return visibleSteps.first
+        }
+        let targetIndex = index + offset
+        guard visibleSteps.indices.contains(targetIndex) else { return nil }
+        return visibleSteps[targetIndex]
+    }
+
+    private func normalizeSelectedStepIfNeeded() {
+        guard !visibleSteps.contains(selectedStep) else { return }
+        selectedStep = firstIncompleteStep
     }
 
     private func dismissWithoutCompleting() {
@@ -314,11 +703,30 @@ struct OnboardingView: View {
             coordinator.dismissPresented()
         }
     }
+
+    private func importConfig() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.prompt = "Import"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        settings.importConfig(from: url)
+        if !settings.statusIsError, settings.localEndpointIsComplete, providerReady, modelRoutesReady, settings.visionSettingsAreValid {
+            selectedStep = .syncAndStart
+        } else if !settings.statusIsError {
+            selectedStep = firstIncompleteStep
+        }
+    }
 }
 
 private enum OnboardingStep: Int, CaseIterable, Identifiable {
     case welcome
-    case secureKeys
+    case provider
+    case modelRoutes
+    case vision
     case syncAndStart
     case verify
 
@@ -328,8 +736,12 @@ private enum OnboardingStep: Int, CaseIterable, Identifiable {
         switch self {
         case .welcome:
             return "Overview"
-        case .secureKeys:
-            return "Credentials"
+        case .provider:
+            return "Provider"
+        case .modelRoutes:
+            return "Models"
+        case .vision:
+            return "Vision"
         case .syncAndStart:
             return "Sync & Start"
         case .verify:
@@ -341,8 +753,12 @@ private enum OnboardingStep: Int, CaseIterable, Identifiable {
         switch self {
         case .welcome:
             return "network"
-        case .secureKeys:
+        case .provider:
             return "key"
+        case .modelRoutes:
+            return "rectangle.stack"
+        case .vision:
+            return "eye"
         case .syncAndStart:
             return "arrow.triangle.2.circlepath"
         case .verify:
@@ -354,8 +770,12 @@ private enum OnboardingStep: Int, CaseIterable, Identifiable {
         switch self {
         case .welcome:
             return "Set up the local gateway"
-        case .secureKeys:
-            return "Add credentials"
+        case .provider:
+            return "Connect a provider"
+        case .modelRoutes:
+            return "Confirm model routes"
+        case .vision:
+            return "Configure vision"
         case .syncAndStart:
             return "Sync clients and start"
         case .verify:
@@ -367,8 +787,12 @@ private enum OnboardingStep: Int, CaseIterable, Identifiable {
         switch self {
         case .welcome:
             return "Claude Gateway runs locally and routes Claude-compatible requests to your configured provider."
-        case .secureKeys:
+        case .provider:
             return "Add provider credentials and keep a separate local bearer key for Claude clients."
+        case .modelRoutes:
+            return "Map Claude-visible model names to the upstream model names your provider accepts."
+        case .vision:
+            return "Add an optional image-capable provider for DeepSeek workflows that include images."
         case .syncAndStart:
             return "Save settings, update Claude Desktop and Claude Code, then start the gateway service."
         case .verify:
@@ -383,14 +807,21 @@ private enum OnboardingStep: Int, CaseIterable, Identifiable {
     var next: OnboardingStep? {
         Self(rawValue: rawValue + 1)
     }
+
+    static func steps(includeVision: Bool) -> [OnboardingStep] {
+        includeVision
+            ? [.welcome, .provider, .modelRoutes, .vision, .syncAndStart, .verify]
+            : [.welcome, .provider, .modelRoutes, .syncAndStart, .verify]
+    }
 }
 
 private struct OnboardingStepList: View {
     var selectedStep: OnboardingStep
+    var steps: [OnboardingStep]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(OnboardingStep.allCases) { step in
+            ForEach(steps) { step in
                 HStack(spacing: 10) {
                     Image(systemName: step.systemImage)
                         .font(.body.weight(.medium))
@@ -461,6 +892,61 @@ private struct OnboardingChecklistRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+}
+
+private struct OnboardingRouteEditor: View {
+    @Binding var route: GatewayModelRoute
+    var providers: [GatewayProvider]
+    var canRemove: Bool
+    var remove: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                TextField("claude-sonnet-4-6", text: $route.alias)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityLabel("Claude Alias")
+
+                Button(role: .destructive) {
+                    remove()
+                } label: {
+                    Label("Remove", systemImage: "trash")
+                        .labelStyle(.iconOnly)
+                }
+                .disabled(!canRemove)
+                .help("Remove route")
+            }
+
+            OnboardingProviderPicker(
+                selection: $route.providerID,
+                providers: providers,
+                accessibilityLabel: "Route Provider"
+            )
+
+            TextField("provider-model", text: $route.upstreamModel)
+                .textFieldStyle(.roundedBorder)
+                .accessibilityLabel("Route Upstream Model")
+        }
+        .padding(10)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.38), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct OnboardingProviderPicker: View {
+    @Binding var selection: String
+    var providers: [GatewayProvider]
+    var accessibilityLabel: String
+
+    var body: some View {
+        Picker("", selection: $selection) {
+            ForEach(providers) { provider in
+                Text(provider.nameForDisplay).tag(provider.id)
+            }
+        }
+        .labelsHidden()
+        .frame(maxWidth: 260, alignment: .leading)
+        .accessibilityLabel(accessibilityLabel)
     }
 }
 

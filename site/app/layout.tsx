@@ -7,7 +7,7 @@ export const metadata: Metadata = {
   metadataBase: siteUrl,
   title: "Claude Gateway — Local provider routing for Claude Desktop and Claude Code",
   description:
-    "A native macOS gateway that routes Claude Desktop and Claude Code through local provider configuration, model aliases, secrets, logs, and sync.",
+    "A native macOS gateway that routes Claude Desktop and Claude Code through local provider configuration, model aliases, keys, logs, and sync.",
   applicationName: "Claude Gateway",
   keywords: [
     "Claude Desktop",
@@ -32,7 +32,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Claude Gateway — Local provider routing for Claude Desktop and Claude Code",
     description:
-      "Route Claude Desktop and Claude Code through local provider configuration, model aliases, secrets, logs, and sync.",
+      "Route Claude Desktop and Claude Code through local provider configuration, model aliases, keys, logs, and sync.",
     url: "/",
     type: "website",
     siteName: "Claude Gateway",
@@ -49,7 +49,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Claude Gateway — Local provider routing for Claude Desktop and Claude Code",
     description:
-      "Route Claude Desktop and Claude Code through local provider configuration, model aliases, secrets, logs, and sync.",
+      "Route Claude Desktop and Claude Code through local provider configuration, model aliases, keys, logs, and sync.",
     images: ["/app-icon.png"],
   },
 };

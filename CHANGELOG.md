@@ -2,10 +2,26 @@
 
 ## Unreleased
 
+## 1.0.17 - 2026-05-09
+
+### Added
+
+- Added provider compatibility profiles, including a DeepSeek V4 Pro + Claude Code recipe with a provider-neutral append prompt path.
+- Added Claude Code append prompt file generation and provider profile environment recommendations during sync.
+- Added DeepSeek-aware onboarding defaults, local endpoint editing, model route confirmation, and a DeepSeek-only Vision configuration step.
+
 ### Changed
 
+- Collapsed gateway settings and secrets into one `config.json` file with app import/export support.
 - Rebranded public documentation and website surfaces to Claude Gateway.
 - Reframed the public narrative around provider-neutral custom Anthropic-compatible upstreams, with provider-specific details moved to examples or historical release notes.
+- Added provider compatibility diagnostics for thinking round-trip, Anthropic beta header, and tool block errors.
+
+### Fixed
+
+- Fixed onboarding quit behavior so Cmd+Q and menu-bar Quit dismiss the setup sheet instead of reopening it.
+- Fixed Vision provider requests so the gateway uses the configured `visionProviderAPIKey` when no matching environment variable is set.
+- Updated model route removal to act on the selected route instead of every route with the same alias.
 
 ## 1.0.16 - 2026-05-08
 

@@ -14,16 +14,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        false
+        AppLifecycleState.isTerminating
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        AppLifecycleState.isTerminating = true
+        AppTerminationController.prepareForTermination()
         return .terminateNow
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        AppLifecycleState.isTerminating = true
+        AppTerminationController.prepareForTermination()
         StatusBarManager.shared.teardown()
     }
 }
@@ -51,8 +51,7 @@ struct ClaudeGatewayApp: App {
 
             CommandGroup(replacing: .appTermination) {
                 Button("Quit Claude Gateway") {
-                    AppLifecycleState.isTerminating = true
-                    NSApp.terminate(nil)
+                    AppTerminationController.requestQuit()
                 }
                 .keyboardShortcut("q")
             }

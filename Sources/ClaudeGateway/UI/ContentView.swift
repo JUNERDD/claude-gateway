@@ -36,7 +36,7 @@ struct ContentView: View {
                 runner.start()
                 runner.refreshStatus()
             }
-            onboarding.presentIfNeeded()
+            onboarding.presentIfNeeded(requiresSetup: !settings.setupIsComplete)
             wireStatusBarManager()
         }
         .onReceive(refreshTimer) { _ in
@@ -62,11 +62,7 @@ struct ContentView: View {
             onboarding.isPresented
         } set: { isPresented in
             guard !isPresented else { return }
-            if onboarding.isInitialFlow {
-                onboarding.skipInitialFlow()
-            } else {
-                onboarding.dismissPresented()
-            }
+            onboarding.dismissPresented()
         }
     }
 
@@ -262,6 +258,9 @@ struct ContentView: View {
     }
 
     private func wireStatusBarManager() {
+        AppTerminationController.onPrepareTermination = { [weak onboarding] in
+            onboarding?.dismissPresented()
+        }
         let manager = StatusBarManager.shared
         manager.onStartGateway = { [weak runner] in
             runner?.start()
@@ -865,9 +864,6 @@ private struct ConfigurationPage: View {
                 VStack(alignment: .leading, spacing: 8) {
                     LabeledContent("Config") {
                         SelectablePath(settings.configPathForDisplay)
-                    }
-                    LabeledContent("Secrets") {
-                        SelectablePath(settings.secretsPathForDisplay)
                     }
                 }
             }

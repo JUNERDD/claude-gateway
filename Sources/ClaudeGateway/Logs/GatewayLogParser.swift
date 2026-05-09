@@ -102,6 +102,27 @@ enum GatewayLogParser {
                 detailJSON: prettyJSON(object)
             )
 
+        case "provider_compatibility_issue":
+            let status = object["status"] as? Int ?? 0
+            let category = object["category"] as? String ?? "provider"
+            let providerID = object["providerID"] as? String ?? "-"
+            let recommendation = object["recommendation"] as? String ?? ""
+            return GatewayLogEvent(
+                id: id,
+                timestamp: timestamp,
+                tone: .warning,
+                title: "Provider 兼容性问题",
+                subtitle: "\(category) · HTTP \(status)",
+                fields: [
+                    GatewayLogField(label: "provider", value: providerID),
+                    GatewayLogField(label: "profile", value: object["compatibilityProfileID"] as? String ?? "-"),
+                    GatewayLogField(label: "建议", value: recommendation.isEmpty ? "-" : recommendation),
+                    GatewayLogField(label: "request", value: shortRequestID(requestID)),
+                ],
+                detailTitle: "兼容性诊断",
+                detailJSON: prettyJSON(object)
+            )
+
         case "gemini_vision_preprocess":
             let imageCount = object["imageCount"] as? Int ?? 0
             let successCount = object["successCount"] as? Int ?? 0

@@ -39,6 +39,7 @@ This is probably not the right tool if:
   - `claude-sonnet-4-6`
   - `claude-haiku-4-5`
 - Configurable routing from Claude-visible model aliases to upstream model names.
+- One-file config import/export for moving a complete gateway setup between Macs.
 - A bundled `vision-provider` MCP server so Claude agents can inspect locally saved image attachments through your configured vision provider.
 - Local logs, request history, issue views, and runtime diagnostics.
 - A per-user macOS LaunchAgent so the gateway keeps serving Claude after the manager window is closed.
@@ -74,23 +75,25 @@ Not required:
 
 If macOS blocks the first launch because the app is distributed outside the App Store, right-click the app and choose `Open`, or allow it from `System Settings -> Privacy & Security`.
 
-### 2. Add Your Upstream Key
+### 2. Connect Your Provider
 
 1. Open `Claude Gateway.app`.
-2. Go to `Settings -> Credentials`.
-3. Paste your provider API key into the upstream API key field.
-4. Keep the generated `Local Gateway Key`; if it is empty, click `Generate`.
+2. If you already have a Claude Gateway config JSON, click `Import Config` in the first-run setup sheet.
+3. Otherwise, enter your provider's Anthropic-compatible base URL.
+4. Choose the provider auth mode and paste the provider API key when required.
+5. Keep the generated `Local Gateway Key`; if it is empty, click `Generate`.
 
 The upstream API key is used only for requests to your configured provider. `Local Gateway Key` is only used between your local Claude clients and the local gateway. Claude clients do not receive your upstream API key.
 
-### 3. Configure The Connection
+### 3. Confirm Models And Connection
 
-Go to `Settings -> Connection`. New users should keep the local listen settings:
+The setup sheet asks you to confirm the Claude-visible model aliases and the upstream model names your provider accepts. New users should keep the local listen settings:
 
 ```text
 Listen Address: 127.0.0.1
 Port: 4000
-Upstream Endpoint: your provider's Anthropic-compatible endpoint
+Default Route: your provider's default upstream model
+Model Routes: claude-* aliases -> provider upstream models
 ```
 
 Do not change `Listen Address` to `0.0.0.0` unless you understand the security impact. The default `127.0.0.1` only accepts local machine traffic.
@@ -101,7 +104,7 @@ Click `Save, Sync, and Start`.
 
 That one action:
 
-- Saves gateway settings and secrets.
+- Saves the single gateway config file.
 - Installs or repairs the local runtime files.
 - Starts or refreshes the LaunchAgent.
 - Syncs Claude Desktop gateway and MCP configuration.
@@ -152,12 +155,12 @@ Settings:
 
 | Tab | What New Users Should Know |
 | --- | --- |
-| `Connection` | Local listen address, port, and upstream Anthropic-compatible endpoint |
-| `Credentials` | Upstream API key, optional vision provider key, and local gateway key |
+| `Connection` | Local listen address, port, and local gateway key |
+| `Providers` | Upstream base URLs, auth modes, provider compatibility profiles, provider API keys, headers, and provider-scoped system prompt injection |
 | `Models` | Model names Claude sees and the upstream models they route to |
 | `Vision` | Optional image inspection provider, model, and base URL |
 | `Claude` | Claude client config snippet and the latest sync result |
-| `Runtime` | Local runtime file status and repair action |
+| `Runtime` | Local runtime file status, repair action, and config import/export |
 
 ## Model Names And Routing
 
@@ -183,6 +186,27 @@ You can change this in `Settings -> Models`:
 
 Important: the `claude-*` names do not mean requests are sent to Anthropic's hosted Claude models.
 
+## Provider Compatibility Profiles
+
+Each provider can keep generic Anthropic-compatible behavior or apply a provider-specific compatibility profile. Profiles are recipes for defaults, not a separate routing engine.
+
+- `Generic Anthropic-compatible` keeps provider-neutral defaults.
+- `DeepSeek V4 Pro + Claude Code` fills the DeepSeek Anthropic endpoint, model routes, Claude Code env recommendations, compatibility diagnostics, and an optional append prompt.
+
+The Claude Code append prompt is separate from provider-scoped `System Prompt Injection`. The append prompt is written to the provider-neutral default path:
+
+```text
+~/.claude/claude-gateway/claude-code.system.md
+```
+
+Start Claude Code with:
+
+```bash
+claude --append-system-prompt-file ~/.claude/claude-gateway/claude-code.system.md
+```
+
+The file name intentionally does not include a provider or profile name. In multi-provider setups, the app writes the prompt for the current default route provider.
+
 ## Provider Recipes
 
 Use any upstream that exposes an Anthropic-compatible messages API. Provider endpoint paths, model names, quotas, and region requirements vary, so use the values from your provider account.
@@ -190,22 +214,23 @@ Use any upstream that exposes an Anthropic-compatible messages API. Provider end
 ### DeepSeek Example
 
 ```text
-Upstream Endpoint: https://api.deepseek.com/anthropic
+Compatibility Profile: DeepSeek V4 Pro + Claude Code
+Provider Base URL: https://api.deepseek.com/anthropic
 Upstream API Key: your DeepSeek API key
 Route: claude-sonnet-4-6 -> deepseek-v4-pro[1m]
 Route: claude-haiku-4-5 -> deepseek-v4-flash
 Default Route: deepseek-v4-pro[1m]
+Claude Code Prompt Path: ~/.claude/claude-gateway/claude-code.system.md
 ```
 
 ### Custom Provider Example
 
 ```text
-Upstream Endpoint: https://provider.example.com/anthropic
+Provider Base URL: https://provider.example.com/anthropic
 Upstream API Key: your provider API key
 Route: claude-sonnet-4-6 -> provider-sonnet-model
 Route: claude-haiku-4-5 -> provider-fast-model
 Default Route: provider-sonnet-model
-Default Target: provider-default-model
 ```
 
 ## Vision And Image Attachments
@@ -285,7 +310,7 @@ This usually means Claude's local bearer token does not match the gateway `Local
 
 Fix:
 
-1. Open `Settings -> Credentials`.
+1. Open `Settings -> Connection`.
 2. Make sure `Local Gateway Key` is not empty.
 3. Click `Save, Sync, and Start`.
 4. Restart Claude clients.
@@ -295,9 +320,15 @@ Fix:
 Check:
 
 - The upstream API key is valid.
-- `Upstream Endpoint` matches your provider requirements.
+- Provider Base URL matches your provider requirements.
 - Your provider account quota, rate limits, region, and target model names are valid.
 - `Issues` and `Logs` show the upstream HTTP status and error details.
+
+If logs show a `Provider 兼容性问题` event:
+
+- `thinking-round-trip` means the upstream route likely did not preserve `reasoning_content` or thinking blocks across tool calls. Use a compatible route, fix the adapter/proxy, or temporarily switch the workflow to a non-thinking route.
+- `anthropic-beta` means the provider rejected an Anthropic beta or experimental header. Set the provider's `Anthropic Beta Header` mode to `strip`, save, and start a fresh Claude client session.
+- `tool-block-support` means the provider rejected a tool, MCP, or server-side message block. Prefer local Claude Code tools or route that workflow to a compatible provider.
 
 ### Image Inspection Does Not Work
 
@@ -318,22 +349,21 @@ Use the app's stop action if you want to stop the gateway, or remove the LaunchA
 ## Privacy And Security
 
 - The gateway binds to `127.0.0.1` by default, so only the local machine can connect.
-- Upstream and vision provider API keys are stored locally in `~/.config/claude-gateway/secrets.json`.
+- Gateway settings and keys are stored locally in `~/.config/claude-gateway/config.json`.
 - Claude clients receive the `Local Gateway Key`, not your upstream API key.
 - Text requests are forwarded to your configured upstream provider.
 - Image attachments are cached locally under `~/Library/Caches/ClaudeGateway/attachments`.
 - Images are sent to your configured vision provider only when Claude calls `vision-provider`.
 - Structured logs avoid storing large image base64 payloads.
 
-On shared machines, note that secrets are currently stored in local files rather than the macOS Keychain.
+On shared machines, note that keys are currently stored in the local config file rather than the macOS Keychain.
 
 ## Files Managed By The App
 
 Gateway configuration:
 
 ```text
-~/.config/claude-gateway/proxy_settings.json
-~/.config/claude-gateway/secrets.json
+~/.config/claude-gateway/config.json
 ```
 
 Runtime files:
@@ -364,6 +394,7 @@ Claude integration:
 ~/Library/Application Support/Claude-3p/configLibrary/*.json
 ~/Library/Application Support/Claude*/claude_desktop_config.json
 ~/.claude/settings.json
+~/.claude/claude-gateway/claude-code.system.md
 ~/.claude.json
 ~/.claude/mcp/vision-provider
 ```

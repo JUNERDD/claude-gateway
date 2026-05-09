@@ -1,6 +1,7 @@
 import AppKit
 import GatewayProxyCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @ObservedObject var settings: ProxySettingsStore
@@ -97,7 +98,10 @@ private struct ProviderSettingsPane: View {
                         provider: $settings.providers[index],
                         apiKey: settings.bindingForProviderAPIKey(settings.providers[index].id),
                         headersText: settings.bindingForProviderHeaders(settings.providers[index].id),
-                        canRemove: settings.providers.count > 1
+                        canRemove: settings.providers.count > 1,
+                        applyProfile: { profileID in
+                            settings.applyCompatibilityProfile(profileID, toProviderAt: index)
+                        }
                     ) {
                         settings.removeProvider(id: settings.providers[index].id)
                     }
@@ -118,6 +122,7 @@ private struct ProviderEditor: View {
     @Binding var apiKey: String
     @Binding var headersText: String
     var canRemove: Bool
+    var applyProfile: (String) -> Void
     var remove: () -> Void
 
     var body: some View {
@@ -139,6 +144,30 @@ private struct ProviderEditor: View {
             SettingsTextFieldRow("Display Name", text: $provider.displayName, placeholder: "Custom Anthropic-compatible")
             SettingsTextFieldRow("Base URL", text: $provider.baseURL, placeholder: "https://provider.example.com/anthropic")
 
+            VStack(alignment: .leading, spacing: 8) {
+                SettingsControlRow("Compatibility Profile", controlAlignment: .trailing) {
+                    Picker("", selection: $provider.compatibilityProfileID) {
+                        ForEach(GatewayProviderProfileCatalog.profiles) { profile in
+                            Text(profile.displayName).tag(profile.id)
+                        }
+                    }
+                    .labelsHidden()
+                }
+
+                HStack {
+                    Text(GatewayProviderProfileCatalog.profile(id: provider.compatibilityProfileID).detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                    Button {
+                        applyProfile(provider.compatibilityProfileID)
+                    } label: {
+                        Label("Apply Recommended Defaults", systemImage: "wand.and.stars")
+                    }
+                }
+            }
+
             SettingsControlRow("Auth", controlAlignment: .trailing) {
                 Picker("", selection: $provider.auth.type) {
                     ForEach(GatewayProviderAuth.supportedTypes, id: \.self) { type in
@@ -154,6 +183,15 @@ private struct ProviderEditor: View {
 
             if provider.auth.type != GatewayProviderAuth.none {
                 SettingsSecureFieldRow("API Key", text: $apiKey, placeholder: "Provider key")
+            }
+
+            SettingsControlRow("Anthropic Beta Header", controlAlignment: .trailing) {
+                Picker("", selection: $provider.anthropicBetaHeaderMode) {
+                    ForEach(GatewayProvider.supportedAnthropicBetaHeaderModes, id: \.self) { mode in
+                        Text(mode).tag(mode)
+                    }
+                }
+                .labelsHidden()
             }
 
             VStack(alignment: .leading, spacing: 6) {
@@ -173,6 +211,22 @@ private struct ProviderEditor: View {
                     .font(.system(.body, design: .monospaced))
                     .frame(minHeight: 88)
                 Text("Appended to this provider's upstream system prompt. Keep it stable for prompt/context cache; avoid timestamps, random values, session IDs, or live status.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle("Generate Claude Code append prompt file", isOn: $provider.claudeCode.appendSystemPromptEnabled)
+                SettingsTextFieldRow(
+                    "Prompt Path",
+                    text: $provider.claudeCode.appendSystemPromptPath,
+                    placeholder: GatewayProviderClaudeCodeSettings.defaultAppendSystemPromptPath
+                )
+                TextEditor(text: $provider.claudeCode.appendSystemPromptText)
+                    .font(.system(.caption, design: .monospaced))
+                    .frame(minHeight: 100)
+                Text("Used only with Claude Code --append-system-prompt-file. It is not injected into upstream requests.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -200,10 +254,11 @@ private struct ModelSettingsPane: View {
                                 .font(.headline)
                             Spacer()
                             Button(role: .destructive) {
-                                settings.removeModelRoute(alias: settings.modelRoutes[index].alias)
+                                settings.removeModelRoute(at: index)
                             } label: {
                                 Label("Remove", systemImage: "trash")
                             }
+                            .disabled(settings.modelRoutes.count <= 1)
                         }
                         SettingsTextFieldRow("Claude Alias", text: $settings.modelRoutes[index].alias, placeholder: "claude-sonnet-4-6")
                         RouteProviderPicker("Provider", selection: $settings.modelRoutes[index].providerID, providers: settings.providers)
@@ -322,6 +377,16 @@ private struct ClaudeSettingsPane: View {
                 }
             }
 
+            Section("Claude Code Append Prompt") {
+                Text(settings.claudeCodeAppendPromptCommand)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                Text("This command uses the current default route provider's Claude Code prompt file. The default path is provider-neutral.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             Section("Last Sync") {
                 ScrollView {
                     StatusText(
@@ -372,11 +437,42 @@ private struct RuntimeSettingsPane: View {
                     SelectablePath(settings.configPathForDisplay)
                 }
 
-                LabeledContent("Secrets") {
-                    SelectablePath(settings.secretsPathForDisplay)
+                HStack {
+                    Button {
+                        importConfig()
+                    } label: {
+                        Label("Import Config", systemImage: "square.and.arrow.down")
+                    }
+
+                    Button {
+                        exportConfig()
+                    } label: {
+                        Label("Export Config", systemImage: "square.and.arrow.up")
+                    }
                 }
             }
         }
+    }
+
+    private func importConfig() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.prompt = "Import"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        settings.importConfig(from: url)
+    }
+
+    private func exportConfig() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "claude-gateway-config.json"
+        panel.canCreateDirectories = true
+        panel.prompt = "Export"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        settings.exportConfig(to: url)
     }
 }
 

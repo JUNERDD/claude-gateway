@@ -45,8 +45,8 @@ const features = [
   },
   {
     icon: KeyRound,
-    title: "Separate local secrets",
-    text: "Claude clients use a local gateway key. Provider API keys stay in app-managed local secrets and never get copied into Claude config.",
+    title: "One local config",
+    text: "Claude clients use a local gateway key. Provider API keys stay in the importable config file and never get copied into Claude config.",
   },
 ];
 
@@ -64,7 +64,7 @@ const setupSteps = [
   {
     icon: ShieldCheck,
     title: "Configure",
-    text: "Add providers, model routes, and the local gateway key.",
+    text: "Add provider credentials and confirm model routes.",
   },
   {
     icon: CheckCircle2,
@@ -77,7 +77,7 @@ const trustRows = [
   {
     icon: KeyRound,
     label: "API keys",
-    detail: "Stored in local app-managed secrets",
+    detail: "Stored in the local config file",
   },
   {
     icon: Server,
@@ -254,7 +254,7 @@ export default function Home() {
           </div>
           <p className="hero-lede">
             Route Claude Desktop and Claude Code through a local gateway that
-            owns provider configuration, model aliases, secrets, logs, and sync.
+            owns provider configuration, model aliases, keys, logs, and sync.
           </p>
           <div className="hero-actions">
             <Link className="primary-action" href={downloadUrl}>

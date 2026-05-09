@@ -7,9 +7,13 @@ final class SystemPromptInjectionTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let settingsURL = directory.appendingPathComponent("proxy_settings.json")
+        let configURL = directory.appendingPathComponent("config.json")
         try """
         {
+          "host": "127.0.0.1",
+          "localGatewayKey": "sk-local-test",
+          "port": 4000,
+          "providerSecrets": {"custom": {"apiKey": "sk-test"}},
           "providers": [{
             "id": "custom",
             "displayName": "Custom",
@@ -20,13 +24,17 @@ final class SystemPromptInjectionTests: XCTestCase {
           }],
           "defaultProviderID": "custom",
           "defaultRoute": {"providerID": "custom", "upstreamModel": "provider-sonnet"},
-          "modelRoutes": [{"alias": "claude-sonnet-4-6", "providerID": "custom", "upstreamModel": "provider-sonnet"}]
+          "modelRoutes": [{"alias": "claude-sonnet-4-6", "providerID": "custom", "upstreamModel": "provider-sonnet"}],
+          "visionProvider": "auto",
+          "visionProviderAPIKey": "",
+          "visionProviderModel": "",
+          "visionProviderBaseURL": ""
         }
-        """.write(to: settingsURL, atomically: true, encoding: .utf8)
+        """.write(to: configURL, atomically: true, encoding: .utf8)
 
-        setenv("GATEWAY_SETTINGS_PATH", settingsURL.path, 1)
+        setenv("GATEWAY_CONFIG_PATH", configURL.path, 1)
         defer {
-            unsetenv("GATEWAY_SETTINGS_PATH")
+            unsetenv("GATEWAY_CONFIG_PATH")
             try? FileManager.default.removeItem(at: directory)
         }
 

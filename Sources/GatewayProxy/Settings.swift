@@ -46,18 +46,6 @@ struct ProxySettings {
 final class SettingsLoader {
     static let shared = SettingsLoader()
 
-    private struct DiskSettings: Decodable {
-        var host: String?
-        var port: Int?
-        var providers: [GatewayProvider]?
-        var defaultProviderID: String?
-        var defaultRoute: GatewayRouteTarget?
-        var modelRoutes: [GatewayModelRoute]?
-        var visionProvider: String?
-        var visionProviderModel: String?
-        var visionProviderBaseURL: String?
-    }
-
     private let lock = NSLock()
     private var cachedSettings: ProxySettings?
     private var cachedSettingsPath: String?
@@ -70,7 +58,7 @@ final class SettingsLoader {
         lock.lock()
         defer { lock.unlock() }
 
-        let path = settingsPath()
+        let path = configPath()
         let mtime = fileMTime(path)
         if let cachedSettings, cachedSettingsPath == path, sameMTime(cachedSettingsMTime, mtime) {
             return cachedSettings
@@ -78,35 +66,27 @@ final class SettingsLoader {
 
         var settings = ProxySettings()
         if let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-            let decoded = try? JSONDecoder().decode(DiskSettings.self, from: data)
+            let decoded = try? JSONDecoder().decode(GatewayAppConfig.self, from: data)
         {
             if let value = cleanString(decoded.host) {
                 settings.host = value
             }
-            if let value = decoded.port {
-                settings.port = value
-            }
-            if let providers = decoded.providers, !providers.isEmpty {
-                settings.providers = providers
+            settings.port = decoded.port
+            if !decoded.providers.isEmpty {
+                settings.providers = decoded.providers
             }
             if let value = cleanString(decoded.defaultProviderID) {
                 settings.defaultProviderID = value
             }
-            if let value = decoded.defaultRoute {
-                settings.defaultRoute = value
-            }
-            if let modelRoutes = decoded.modelRoutes, !modelRoutes.isEmpty {
-                settings.modelRoutes = modelRoutes
+            settings.defaultRoute = decoded.defaultRoute
+            if !decoded.modelRoutes.isEmpty {
+                settings.modelRoutes = decoded.modelRoutes
             }
             if let value = cleanString(decoded.visionProvider) {
                 settings.visionProvider = value
             }
-            if let value = decoded.visionProviderModel {
-                settings.visionProviderModel = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-            if let value = decoded.visionProviderBaseURL {
-                settings.visionProviderBaseURL = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
+            settings.visionProviderModel = decoded.visionProviderModel.trimmingCharacters(in: .whitespacesAndNewlines)
+            settings.visionProviderBaseURL = decoded.visionProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
         if let override = ProcessInfo.processInfo.environment["GATEWAY_PROVIDER_BASE_URL"],
@@ -137,7 +117,7 @@ final class SettingsLoader {
         lock.lock()
         defer { lock.unlock() }
 
-        let path = secretsPath()
+        let path = configPath()
         let mtime = fileMTime(path)
         if let cachedSecrets, cachedSecretsPath == path, sameMTime(cachedSecretsMTime, mtime) {
             return cachedSecrets
@@ -145,9 +125,13 @@ final class SettingsLoader {
 
         var secrets = GatewaySecrets()
         if let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-            let decoded = try? JSONDecoder().decode(GatewaySecrets.self, from: data)
+            let decoded = try? JSONDecoder().decode(GatewayAppConfig.self, from: data)
         {
-            secrets = decoded
+            secrets = GatewaySecrets(
+                localGatewayKey: decoded.localGatewayKey,
+                providerSecrets: decoded.providerSecrets,
+                visionProviderAPIKey: decoded.visionProviderAPIKey
+            )
         }
 
         let environment = ProcessInfo.processInfo.environment
@@ -167,18 +151,11 @@ final class SettingsLoader {
         return secrets
     }
 
-    private func settingsPath() -> String {
-        if let configured = ProcessInfo.processInfo.environment["GATEWAY_SETTINGS_PATH"], !configured.isEmpty {
+    private func configPath() -> String {
+        if let configured = ProcessInfo.processInfo.environment["GATEWAY_CONFIG_PATH"], !configured.isEmpty {
             return NSString(string: configured).expandingTildeInPath
         }
-        return "\(NSHomeDirectory())/.config/claude-gateway/proxy_settings.json"
-    }
-
-    private func secretsPath() -> String {
-        if let configured = ProcessInfo.processInfo.environment["GATEWAY_SECRETS_PATH"], !configured.isEmpty {
-            return NSString(string: configured).expandingTildeInPath
-        }
-        return "\(NSHomeDirectory())/.config/claude-gateway/secrets.json"
+        return "\(NSHomeDirectory())/.config/claude-gateway/config.json"
     }
 
     private func fileMTime(_ path: String) -> timespec? {

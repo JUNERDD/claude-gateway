@@ -151,6 +151,7 @@ final class HTTPConnection {
         }
 
         let settings = SettingsLoader.shared.load()
+        let secrets = SettingsLoader.shared.loadSecrets()
         let describeRequest = VisionProviderDescribeRequest(
             image: image,
             mimeType: firstString(in: payload, keys: ["mimeType", "mime_type"]),
@@ -159,11 +160,18 @@ final class HTTPConnection {
             model: firstString(in: payload, keys: ["model"]),
             baseURL: firstString(in: payload, keys: ["baseURL", "base_url"])
         )
+        var environment = ProcessInfo.processInfo.environment
+        let visionProviderAPIKey = secrets.visionProviderAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !visionProviderAPIKey.isEmpty,
+            environment["VISION_PROVIDER_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
+        {
+            environment["VISION_PROVIDER_API_KEY"] = visionProviderAPIKey
+        }
         let configuration = VisionProviderRuntimeConfiguration(
             provider: settings.visionProvider,
             model: settings.visionProviderModel,
             baseURL: settings.visionProviderBaseURL,
-            environment: ProcessInfo.processInfo.environment
+            environment: environment
         )
 
         do {
@@ -306,7 +314,9 @@ final class HTTPConnection {
         upstream.setValue(request.headers["accept"] ?? "application/json", forHTTPHeaderField: "accept")
         upstream.setValue(request.headers["anthropic-version"] ?? "2023-06-01", forHTTPHeaderField: "anthropic-version")
         upstream.setValue("claude-gateway/1.0", forHTTPHeaderField: "user-agent")
-        if let beta = request.headers["anthropic-beta"] {
+        if provider.anthropicBetaHeaderMode == GatewayProvider.anthropicBetaForward,
+            let beta = request.headers["anthropic-beta"]
+        {
             upstream.setValue(beta, forHTTPHeaderField: "anthropic-beta")
         }
         for (name, value) in provider.sanitizedDefaultHeaders() {
@@ -321,6 +331,7 @@ final class HTTPConnection {
             "path": request.path,
             "providerID": provider.id,
             "provider": provider.nameForDisplay,
+            "compatibilityProfileID": provider.compatibilityProfileID,
             "upstreamURL": targetURLString,
             "originalModel": originalModel ?? NSNull(),
             "targetModel": targetModel,
@@ -330,13 +341,18 @@ final class HTTPConnection {
             "headers": [
                 "accept": request.headers["accept"] ?? "application/json",
                 "anthropic-version": request.headers["anthropic-version"] ?? "2023-06-01",
-                "anthropic-beta": request.headers["anthropic-beta"] ?? "",
+                "anthropic-beta": provider.anthropicBetaHeaderMode == GatewayProvider.anthropicBetaForward ? request.headers["anthropic-beta"] ?? "" : "[stripped]",
                 "content-type": "application/json",
                 "user-agent": "claude-gateway/1.0",
             ],
         ])
 
-        let forwarder = UpstreamForwarder(fd: fd, requestID: requestID, providerID: provider.id)
+        let forwarder = UpstreamForwarder(
+            fd: fd,
+            requestID: requestID,
+            providerID: provider.id,
+            compatibilityProfileID: provider.compatibilityProfileID
+        )
         forwarder.forward(upstream)
     }
 

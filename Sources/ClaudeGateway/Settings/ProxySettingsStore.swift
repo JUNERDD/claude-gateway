@@ -32,20 +32,17 @@ final class ProxySettingsStore: ObservableObject {
     @Published private(set) var isPersistingAndSyncing: Bool = false
 
     private let configURL: URL
-    private let secretsURL: URL
     private let persistAndSyncOperation: (ProxyDiskSettings, String) throws -> ProxySettingsSyncResult
     private var runtimeInstallTask: Task<Void, Never>?
     private var persistAndSyncTask: Task<Void, Never>?
     private var operationGeneration = 0
 
     init(
-        configURL: URL = BundledRuntimeInstaller.settingsURL,
-        secretsURL: URL = BundledRuntimeInstaller.secretsURL,
+        configURL: URL = BundledRuntimeInstaller.configURL,
         installRuntimeOnInit: Bool = true,
         persistAndSyncOperation: @escaping (ProxyDiskSettings, String) throws -> ProxySettingsSyncResult = ProxySettingsStore.defaultPersistAndSyncOperation
     ) {
         self.configURL = configURL
-        self.secretsURL = secretsURL
         self.persistAndSyncOperation = persistAndSyncOperation
         load()
         if installRuntimeOnInit {
@@ -68,10 +65,6 @@ final class ProxySettingsStore: ObservableObject {
         abbreviateHome(configURL.path)
     }
 
-    var secretsPathForDisplay: String {
-        abbreviateHome(secretsURL.path)
-    }
-
     var advertisedModels: [String] {
         uniqueNonEmpty(modelRoutes.map(\.alias))
     }
@@ -84,6 +77,18 @@ final class ProxySettingsStore: ObservableObject {
         primaryProvider?.baseURL ?? ""
     }
 
+    var activeClaudeCodeProvider: GatewayProvider? {
+        providers.first { $0.id == defaultRouteProviderID }
+            ?? providers.first { $0.id == defaultProviderID }
+            ?? providers.first
+    }
+
+    var claudeCodeAppendPromptCommand: String {
+        let path = activeClaudeCodeProvider?.claudeCode.appendSystemPromptPath
+            ?? GatewayProviderClaudeCodeSettings.defaultAppendSystemPromptPath
+        return ClaudeCodePromptInstaller.appendPromptCommand(displayPath: path)
+    }
+
     var defaultTargetDescription: String {
         "\(defaultRouteProviderID) / \(defaultRouteModel)"
     }
@@ -93,6 +98,38 @@ final class ProxySettingsStore: ObservableObject {
             guard provider.auth.requiresAPIKey else { return true }
             return !(providerAPIKeys[provider.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
+    }
+
+    var setupIsComplete: Bool {
+        guard localEndpointIsComplete else { return false }
+        guard !localGatewayKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard providersAreComplete else { return false }
+        guard modelRoutesAreComplete else { return false }
+        guard visionSettingsAreValid else { return false }
+        return true
+    }
+
+    var localEndpointIsComplete: Bool {
+        let hostValue = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        let portValue = portText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !hostValue.isEmpty,
+            let port = Int(portValue),
+            (1...65535).contains(port)
+        else {
+            return false
+        }
+        return true
+    }
+
+    var activeProviderUsesDeepSeekCompatibilityProfile: Bool {
+        activeClaudeCodeProvider?.compatibilityProfileID == GatewayProviderProfileCatalog.deepSeekV4ProClaudeCodeID
+    }
+
+    var visionSettingsAreValid: Bool {
+        let cleanedProvider = visionProvider.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard ProxyDiskSettings.supportedVisionProviders.contains(cleanedProvider) else { return false }
+        let baseURL = visionProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        return baseURL.isEmpty || validHTTPURL(baseURL)
     }
 
     var claudeConfigSnippet: String {
@@ -112,26 +149,52 @@ final class ProxySettingsStore: ObservableObject {
     }
 
     func load() {
-        let disk = readDiskSettings()
-        host = disk.host
-        portText = String(disk.port)
-        providers = disk.providers
-        defaultProviderID = disk.defaultProviderID
-        defaultRouteProviderID = disk.defaultRoute.providerID
-        defaultRouteModel = disk.defaultRoute.upstreamModel
-        modelRoutes = disk.modelRoutes
-        visionProvider = disk.visionProvider
-        visionProviderModel = disk.visionProviderModel
-        visionProviderBaseURL = disk.visionProviderBaseURL
-
-        let secrets = readSecrets()
-        localGatewayKey = secrets.localGatewayKey.isEmpty ? BundledRuntimeInstaller.generateLocalGatewayKey() : secrets.localGatewayKey
-        providerAPIKeys = secrets.providerSecrets.mapValues(\.apiKey)
-        visionProviderAPIKey = secrets.visionProviderAPIKey
+        applyConfig(readConfig())
         statusMessage = ""
         statusIsError = false
         claudeSyncStatusMessage = ""
         claudeSyncStatusIsError = false
+    }
+
+    func importConfig(from url: URL) {
+        do {
+            let data = try Data(contentsOf: url)
+            var config = try JSONDecoder().decode(GatewayAppConfig.self, from: data)
+            if config.localGatewayKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                config.localGatewayKey = BundledRuntimeInstaller.generateLocalGatewayKey()
+            }
+            if config.providerSecrets[GatewayConfigurationDefaults.providerID] == nil {
+                config.providerSecrets[GatewayConfigurationDefaults.providerID] = GatewayProviderSecret(apiKey: "")
+            }
+            try ensureConfigDirectory()
+            try writeConfig(config)
+            applyConfig(config)
+            statusMessage = "已导入配置。"
+            statusIsError = false
+            claudeSyncStatusMessage = ""
+            claudeSyncStatusIsError = false
+        } catch {
+            statusMessage = "导入失败：\(error.localizedDescription)"
+            statusIsError = true
+        }
+    }
+
+    func exportConfig(to url: URL) {
+        do {
+            if localGatewayKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                localGatewayKey = BundledRuntimeInstaller.generateLocalGatewayKey()
+            }
+            let settings = try validatedDiskSettings()
+            try writeConfig(config(settings: settings))
+            if configURL.standardizedFileURL.path != url.standardizedFileURL.path {
+                try FileManager.default.copyItemReplacingExisting(at: configURL, to: url)
+            }
+            statusMessage = "已导出配置。"
+            statusIsError = false
+        } catch {
+            statusMessage = "导出失败：\(error.localizedDescription)"
+            statusIsError = true
+        }
     }
 
     func save() {
@@ -181,8 +244,35 @@ final class ProxySettingsStore: ObservableObject {
         modelRoutes.append(GatewayModelRoute(alias: "claude-custom-\(modelRoutes.count + 1)", providerID: providerID, upstreamModel: "upstream-model"))
     }
 
-    func removeModelRoute(alias: String) {
-        modelRoutes.removeAll { $0.alias == alias }
+    func removeModelRoute(at index: Int) {
+        guard modelRoutes.indices.contains(index) else { return }
+        modelRoutes.remove(at: index)
+    }
+
+    func applyCompatibilityProfile(_ profileID: String, toProviderAt index: Int) {
+        guard providers.indices.contains(index) else { return }
+        let profile = GatewayProviderProfileCatalog.profile(id: profileID)
+        let providerID = providers[index].id
+
+        providers[index].compatibilityProfileID = profile.id
+        providers[index].anthropicBetaHeaderMode = profile.recommendedAnthropicBetaHeaderMode
+        providers[index].claudeCode = profile.recommendedClaudeCode
+        if !profile.recommendedBaseURL.isEmpty {
+            providers[index].baseURL = profile.recommendedBaseURL
+        }
+        providers[index].auth = profile.recommendedAuth
+
+        guard !profile.recommendedDefaultRouteModel.isEmpty else { return }
+        defaultProviderID = providerID
+        defaultRouteProviderID = providerID
+        defaultRouteModel = profile.recommendedDefaultRouteModel
+        modelRoutes = profile.recommendedModelRoutes.map { route in
+            GatewayModelRoute(
+                alias: route.alias,
+                providerID: providerID,
+                upstreamModel: route.upstreamModel
+            )
+        }
     }
 
     func bindingForProviderAPIKey(_ providerID: String) -> Binding<String> {
@@ -215,23 +305,7 @@ final class ProxySettingsStore: ObservableObject {
             }
             let settings = try validatedDiskSettings()
             try ensureConfigDirectory()
-
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(settings)
-            try data.write(to: configURL, options: .atomic)
-            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configURL.path)
-
-            let secrets = GatewaySecrets(
-                localGatewayKey: localGatewayKey,
-                providerSecrets: providerAPIKeys.reduce(into: [:]) { result, item in
-                    result[item.key] = GatewayProviderSecret(apiKey: item.value)
-                },
-                visionProviderAPIKey: visionProviderAPIKey
-            )
-            let secretsData = try encoder.encode(secrets)
-            try secretsData.write(to: secretsURL, options: .atomic)
-            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: secretsURL.path)
+            try writeConfig(config(settings: settings))
 
             let key = localGatewayKey
             let operation = persistAndSyncOperation
@@ -412,7 +486,10 @@ final class ProxySettingsStore: ObservableObject {
                 baseURL: baseURL,
                 auth: GatewayProviderAuth(type: authType, customHeaderName: provider.auth.customHeaderName),
                 defaultHeaders: provider.defaultHeaders,
-                systemPromptInjection: provider.systemPromptInjection
+                systemPromptInjection: provider.systemPromptInjection,
+                compatibilityProfileID: provider.compatibilityProfileID,
+                anthropicBetaHeaderMode: provider.anthropicBetaHeaderMode,
+                claudeCode: provider.claudeCode
             )
         }
     }
@@ -432,32 +509,88 @@ final class ProxySettingsStore: ObservableObject {
         }
     }
 
-    private func readDiskSettings() -> ProxyDiskSettings {
+    private func readConfig() -> GatewayAppConfig {
         guard let data = try? Data(contentsOf: configURL),
-            let decoded = try? JSONDecoder().decode(ProxyDiskSettings.self, from: data)
-        else {
-            return .defaults
-        }
+            let decoded = try? JSONDecoder().decode(GatewayAppConfig.self, from: data)
+        else { return defaultConfig() }
+        return decoded
+    }
+
+    private func applyConfig(_ config: GatewayAppConfig) {
+        let disk = diskSettings(from: config)
+        host = disk.host
+        portText = String(disk.port)
+        providers = disk.providers
+        defaultProviderID = disk.defaultProviderID
+        defaultRouteProviderID = disk.defaultRoute.providerID
+        defaultRouteModel = disk.defaultRoute.upstreamModel
+        modelRoutes = disk.modelRoutes
+        visionProvider = disk.visionProvider
+        visionProviderModel = disk.visionProviderModel
+        visionProviderBaseURL = disk.visionProviderBaseURL
+        localGatewayKey = config.localGatewayKey.isEmpty ? BundledRuntimeInstaller.generateLocalGatewayKey() : config.localGatewayKey
+        providerAPIKeys = config.providerSecrets.mapValues(\.apiKey)
+        visionProviderAPIKey = config.visionProviderAPIKey
+    }
+
+    private func diskSettings(from config: GatewayAppConfig) -> ProxyDiskSettings {
         return ProxyDiskSettings(
-            host: decoded.host.isEmpty ? ProxyDiskSettings.defaults.host : decoded.host,
-            port: decoded.port,
-            providers: decoded.providers.isEmpty ? ProxyDiskSettings.defaults.providers : decoded.providers,
-            defaultProviderID: decoded.defaultProviderID.isEmpty ? ProxyDiskSettings.defaults.defaultProviderID : decoded.defaultProviderID,
-            defaultRoute: decoded.defaultRoute.providerID.isEmpty ? ProxyDiskSettings.defaults.defaultRoute : decoded.defaultRoute,
-            modelRoutes: decoded.modelRoutes.isEmpty ? ProxyDiskSettings.defaultModelRoutes : decoded.modelRoutes,
-            visionProvider: decoded.visionProvider,
-            visionProviderModel: decoded.visionProviderModel.trimmingCharacters(in: .whitespacesAndNewlines),
-            visionProviderBaseURL: decoded.visionProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            host: config.host.isEmpty ? ProxyDiskSettings.defaults.host : config.host,
+            port: config.port,
+            providers: config.providers.isEmpty ? ProxyDiskSettings.defaults.providers : config.providers,
+            defaultProviderID: config.defaultProviderID.isEmpty ? ProxyDiskSettings.defaults.defaultProviderID : config.defaultProviderID,
+            defaultRoute: config.defaultRoute.providerID.isEmpty ? ProxyDiskSettings.defaults.defaultRoute : config.defaultRoute,
+            modelRoutes: config.modelRoutes.isEmpty ? ProxyDiskSettings.defaultModelRoutes : config.modelRoutes,
+            visionProvider: config.visionProvider,
+            visionProviderModel: config.visionProviderModel.trimmingCharacters(in: .whitespacesAndNewlines),
+            visionProviderBaseURL: config.visionProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         )
     }
 
-    private func readSecrets() -> GatewaySecrets {
-        guard let data = try? Data(contentsOf: secretsURL),
-            let decoded = try? JSONDecoder().decode(GatewaySecrets.self, from: data)
-        else {
-            return GatewaySecrets()
-        }
-        return decoded
+    private func defaultConfig() -> GatewayAppConfig {
+        GatewayAppConfig(
+            host: ProxyDiskSettings.defaults.host,
+            port: ProxyDiskSettings.defaults.port,
+            providers: ProxyDiskSettings.defaults.providers,
+            defaultProviderID: ProxyDiskSettings.defaults.defaultProviderID,
+            defaultRoute: ProxyDiskSettings.defaults.defaultRoute,
+            modelRoutes: ProxyDiskSettings.defaults.modelRoutes,
+            visionProvider: ProxyDiskSettings.defaults.visionProvider,
+            visionProviderModel: ProxyDiskSettings.defaults.visionProviderModel,
+            visionProviderBaseURL: ProxyDiskSettings.defaults.visionProviderBaseURL,
+            localGatewayKey: BundledRuntimeInstaller.generateLocalGatewayKey(),
+            providerSecrets: [
+                GatewayConfigurationDefaults.providerID: GatewayProviderSecret(apiKey: ""),
+            ],
+            visionProviderAPIKey: ""
+        )
+    }
+
+    private func config(settings: ProxyDiskSettings) -> GatewayAppConfig {
+        GatewayAppConfig(
+            host: settings.host,
+            port: settings.port,
+            providers: settings.providers,
+            defaultProviderID: settings.defaultProviderID,
+            defaultRoute: settings.defaultRoute,
+            modelRoutes: settings.modelRoutes,
+            visionProvider: settings.visionProvider,
+            visionProviderModel: settings.visionProviderModel,
+            visionProviderBaseURL: settings.visionProviderBaseURL,
+            localGatewayKey: localGatewayKey,
+            providerSecrets: providerAPIKeys.reduce(into: [:]) { result, item in
+                result[item.key] = GatewayProviderSecret(apiKey: item.value)
+            },
+            visionProviderAPIKey: visionProviderAPIKey
+        )
+    }
+
+    private func writeConfig(_ config: GatewayAppConfig) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(config)
+        try data.write(to: configURL, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configURL.path)
     }
 
     private func ensureConfigDirectory() throws {
@@ -477,6 +610,46 @@ final class ProxySettingsStore: ObservableObject {
             result.append(cleaned)
         }
         return result
+    }
+
+    private var providersAreComplete: Bool {
+        guard !providers.isEmpty else { return false }
+        var seenIDs = Set<String>()
+        for provider in providers {
+            let id = provider.id.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !id.isEmpty, !seenIDs.contains(id) else { return false }
+            seenIDs.insert(id)
+
+            guard validHTTPURL(provider.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)) else { return false }
+            if provider.auth.type == GatewayProviderAuth.customHeader {
+                let header = provider.auth.customHeaderName.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !header.isEmpty, !GatewayProvider.gatewayManagedHeaders.contains(header.lowercased()) else { return false }
+            }
+            if provider.auth.requiresAPIKey {
+                let apiKey = providerAPIKeys[id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                guard !apiKey.isEmpty else { return false }
+            }
+        }
+        return true
+    }
+
+    private var modelRoutesAreComplete: Bool {
+        let providerIDs = Set(providers.map { $0.id.trimmingCharacters(in: .whitespacesAndNewlines) })
+        guard providerIDs.contains(defaultRouteProviderID) else { return false }
+        guard !defaultRouteModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard !modelRoutes.isEmpty else { return false }
+
+        var aliases = Set<String>()
+        for route in modelRoutes {
+            let alias = route.alias.trimmingCharacters(in: .whitespacesAndNewlines)
+            let upstreamModel = route.upstreamModel.trimmingCharacters(in: .whitespacesAndNewlines)
+            let providerID = route.providerID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !alias.isEmpty, !upstreamModel.isEmpty, providerIDs.contains(providerID), !aliases.contains(alias) else {
+                return false
+            }
+            aliases.insert(alias)
+        }
+        return true
     }
 
     private func validHTTPURL(_ value: String) -> Bool {
@@ -509,5 +682,14 @@ final class ProxySettingsStore: ObservableObject {
             result[name] = value
         }
         return result
+    }
+}
+
+private extension FileManager {
+    func copyItemReplacingExisting(at sourceURL: URL, to destinationURL: URL) throws {
+        if fileExists(atPath: destinationURL.path) {
+            try removeItem(at: destinationURL)
+        }
+        try copyItem(at: sourceURL, to: destinationURL)
     }
 }

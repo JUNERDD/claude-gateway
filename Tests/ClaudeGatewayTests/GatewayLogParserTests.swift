@@ -63,4 +63,18 @@ final class GatewayLogParserTests: XCTestCase {
         XCTAssertTrue(event.fields.contains { $0.label == "provider" && $0.value == "dashscope" })
         XCTAssertTrue(event.fields.contains { $0.label == "模型" && $0.value == "qwen3-vl-flash" })
     }
+
+    func testProviderCompatibilityIssueShowsRecommendation() throws {
+        let logText = """
+        CG_EVENT {"category":"thinking-round-trip","compatibilityProfileID":"deepseek-v4-pro-claude-code","message":"missing reasoning_content","providerID":"custom","recommendation":"Use a compatible route.","requestID":"req-compat","status":400,"timestamp":"2026-05-07T10:00:00Z","type":"provider_compatibility_issue"}
+        """
+
+        let event = try XCTUnwrap(GatewayLogParser.parse(logText).first)
+
+        XCTAssertEqual(event.title, "Provider 兼容性问题")
+        XCTAssertEqual(event.subtitle, "thinking-round-trip · HTTP 400")
+        XCTAssertEqual(event.tone.label, "Warning")
+        XCTAssertTrue(event.fields.contains { $0.label == "provider" && $0.value == "custom" })
+        XCTAssertTrue(event.fields.contains { $0.label == "建议" && $0.value == "Use a compatible route." })
+    }
 }

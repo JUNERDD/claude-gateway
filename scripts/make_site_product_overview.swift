@@ -1,9 +1,36 @@
 #!/usr/bin/env swift
 import AppKit
+import Foundation
 
 let outputPath = CommandLine.arguments.dropFirst().first ?? "site/public/product-overview.png"
 let width = 1580
 let height = 1041
+
+func loadProductVersion() -> String {
+    let environment = ProcessInfo.processInfo.environment
+    if let override = environment["CLAUDE_GATEWAY_PRODUCT_VERSION"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+       !override.isEmpty {
+        return override
+    }
+
+    let infoPlistURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Info.plist")
+    do {
+        let data = try Data(contentsOf: infoPlistURL)
+        let plist = try PropertyListSerialization.propertyList(from: data, options: [], format: nil)
+        guard let values = plist as? [String: Any],
+              let version = values["CFBundleShortVersionString"] as? String,
+              !version.isEmpty else {
+            fatalError("Info.plist is missing CFBundleShortVersionString")
+        }
+        return version
+    } catch {
+        fatalError("Unable to read product version from \(infoPlistURL.path): \(error)")
+    }
+}
+
+let productVersion = loadProductVersion()
+let displayedProductVersion = productVersion.hasPrefix("v") ? productVersion : "v\(productVersion)"
 
 guard let bitmap = NSBitmapImageRep(
     bitmapDataPlanes: nil,
@@ -122,7 +149,7 @@ drawText("2", x: 128, y: 934, w: 34, h: 18, size: 12, weight: .bold, color: colo
 drawText("Providers", x: 128, y: 950, w: 70, h: 16, size: 10, weight: .medium, color: color(0xa6aaaa))
 drawText("3", x: 204, y: 934, w: 34, h: 18, size: 12, weight: .bold, color: color(0xf2f2f2))
 drawText("Models", x: 204, y: 950, w: 60, h: 16, size: 10, weight: .medium, color: color(0xa6aaaa))
-drawText("v1.0.16", x: 54, y: 974, w: 70, h: 16, size: 10, weight: .medium, color: color(0x777b7b))
+drawText(displayedProductVersion, x: 54, y: 974, w: 70, h: 16, size: 10, weight: .medium, color: color(0x777b7b))
 
 let contentX = windowX + sidebarW
 drawText("Overview", x: contentX + 20, y: 48, w: 120, h: 24, size: 15, weight: .bold, color: color(0x6d7070))

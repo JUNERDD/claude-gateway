@@ -7,6 +7,31 @@ enum AppLifecycleState {
 }
 
 @MainActor
+enum AppTerminationController {
+    static var onPrepareTermination: (() -> Void)?
+
+    static func requestQuit() {
+        prepareForTermination()
+        NSApplication.shared.terminate(nil)
+    }
+
+    static func prepareForTermination() {
+        AppLifecycleState.isTerminating = true
+        onPrepareTermination?()
+        dismissAttachedSheets()
+    }
+
+    private static func dismissAttachedSheets() {
+        guard let app = NSApp else { return }
+        for window in app.windows {
+            guard let sheet = window.attachedSheet else { continue }
+            window.endSheet(sheet)
+            sheet.close()
+        }
+    }
+}
+
+@MainActor
 enum MainWindowPresenter {
     static let identifier = NSUserInterfaceItemIdentifier("ClaudeGateway.mainWindow")
 

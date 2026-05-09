@@ -30,6 +30,10 @@ final class ProxySettingsErrorTests: XCTestCase {
         XCTAssertEqual(decoded.visionProviderModel, "")
         XCTAssertEqual(decoded.visionProviderBaseURL, "")
         XCTAssertEqual(decoded.providers.first?.systemPromptInjection, "")
+        XCTAssertEqual(decoded.providers.first?.compatibilityProfileID, GatewayProvider.genericCompatibilityProfileID)
+        XCTAssertEqual(decoded.providers.first?.anthropicBetaHeaderMode, GatewayProvider.anthropicBetaForward)
+        XCTAssertEqual(decoded.providers.first?.claudeCode.appendSystemPromptPath, GatewayProviderClaudeCodeSettings.defaultAppendSystemPromptPath)
+        XCTAssertEqual(decoded.providers.first?.claudeCode.appendSystemPromptEnabled, false)
     }
 
     func testEncodedSettingsUseProviderRoutesAndGenericVisionProviderFields() throws {
@@ -63,6 +67,9 @@ final class ProxySettingsErrorTests: XCTestCase {
         XCTAssertTrue(text.contains("modelRoutes"))
         XCTAssertTrue(text.contains("visionProvider"))
         XCTAssertTrue(text.contains("systemPromptInjection"))
+        XCTAssertTrue(text.contains("compatibilityProfileID"))
+        XCTAssertTrue(text.contains("anthropicBetaHeaderMode"))
+        XCTAssertTrue(text.contains("claudeCode"))
         XCTAssertFalse(text.contains("haiku" + "TargetModel"))
         XCTAssertFalse(text.contains("systemPromptPrefix"))
         XCTAssertFalse(text.contains("systemPromptSuffix"))

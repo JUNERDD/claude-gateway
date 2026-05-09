@@ -36,12 +36,8 @@ enum BundledRuntimeInstaller {
             .appendingPathComponent("bin", isDirectory: true)
     }
 
-    static var settingsURL: URL {
-        configDirURL.appendingPathComponent("proxy_settings.json")
-    }
-
-    static var secretsURL: URL {
-        configDirURL.appendingPathComponent("secrets.json")
+    static var configURL: URL {
+        configDirURL.appendingPathComponent("config.json")
     }
 
     static var startScriptURL: URL {
@@ -55,8 +51,7 @@ enum BundledRuntimeInstaller {
             binDirURL.appendingPathComponent("claude-gateway-proxy.sh").path,
             binDirURL.appendingPathComponent("claude-gateway-doctor.sh").path,
             configDirURL.appendingPathComponent("gateway_proxy").path,
-            settingsURL.path,
-            secretsURL.path,
+            configURL.path,
         ]
         return requiredFiles.allSatisfy { fm.fileExists(atPath: $0) }
             && fm.isExecutableFile(atPath: startScriptURL.path)
@@ -80,8 +75,7 @@ enum BundledRuntimeInstaller {
             fm.fileExists(atPath: runtimeURL.path)
         else {
             report.warnings.append("app bundle 内没有 Runtime 资源；将沿用当前用户目录中的脚本")
-            try ensureDefaultSettings(report: &report)
-            try ensureSecrets(report: &report)
+            try ensureDefaultConfig(report: &report)
             return report
         }
 
@@ -109,8 +103,7 @@ enum BundledRuntimeInstaller {
             try? fm.setAttributes([.posixPermissions: NSNumber(value: permissions)], ofItemAtPath: destination.path)
         }
 
-        try ensureDefaultSettings(report: &report, runtimeURL: runtimeURL)
-        try ensureSecrets(report: &report)
+        try ensureDefaultConfig(report: &report)
         return report
     }
 
@@ -119,12 +112,12 @@ enum BundledRuntimeInstaller {
     }
 
     static func hasUsableLocalGatewayKey() -> Bool {
-        guard let data = try? Data(contentsOf: secretsURL),
-            let secrets = try? JSONDecoder().decode(GatewaySecrets.self, from: data)
+        guard let data = try? Data(contentsOf: configURL),
+            let config = try? JSONDecoder().decode(GatewayAppConfig.self, from: data)
         else {
             return false
         }
-        return !secrets.localGatewayKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return !config.localGatewayKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private static func shouldCopy(source: URL, destination: URL) -> Bool {
@@ -152,68 +145,37 @@ enum BundledRuntimeInstaller {
         }
     }
 
-    private static func ensureDefaultSettings(report: inout RuntimeInstallReport, runtimeURL: URL? = nil) throws {
+    private static func ensureDefaultConfig(report: inout RuntimeInstallReport) throws {
         let fm = FileManager.default
-        guard !fm.fileExists(atPath: settingsURL.path) else {
-            try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: settingsURL.path)
-            return
-        }
-
-        if let source = runtimeURL?.appendingPathComponent("proxy_settings.default.json"),
-            fm.fileExists(atPath: source.path)
+        var config: GatewayAppConfig
+        if let data = try? Data(contentsOf: configURL),
+            let decoded = try? JSONDecoder().decode(GatewayAppConfig.self, from: data)
         {
-            try fm.copyItem(at: source, to: settingsURL)
+            config = decoded
         } else {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(ProxyDiskSettings.defaults)
-            try data.write(to: settingsURL, options: .atomic)
-        }
-        try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: settingsURL.path)
-        report.created.append("proxy_settings.json")
-    }
-
-    private static func ensureSecrets(report: inout RuntimeInstallReport) throws {
-        let fm = FileManager.default
-        if !fm.fileExists(atPath: secretsURL.path) {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let secrets = GatewaySecrets(
-                localGatewayKey: generateLocalGatewayKey(),
-                providerSecrets: [
-                    GatewayConfigurationDefaults.providerID: GatewayProviderSecret(apiKey: ""),
-                ],
-                visionProviderAPIKey: ""
-            )
-            try encoder.encode(secrets).write(to: secretsURL, options: .atomic)
-            try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: secretsURL.path)
-            report.created.append("secrets.json")
-            return
+            config = GatewayAppConfig()
         }
 
-        var secrets: GatewaySecrets
-        if let data = try? Data(contentsOf: secretsURL),
-            let decoded = try? JSONDecoder().decode(GatewaySecrets.self, from: data)
-        {
-            secrets = decoded
-        } else {
-            secrets = GatewaySecrets()
-        }
         var changed = false
-        if secrets.localGatewayKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            secrets.localGatewayKey = generateLocalGatewayKey()
+        let existed = fm.fileExists(atPath: configURL.path)
+        if config.localGatewayKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            config.localGatewayKey = generateLocalGatewayKey()
             changed = true
         }
-        if secrets.providerSecrets[GatewayConfigurationDefaults.providerID] == nil {
-            secrets.providerSecrets[GatewayConfigurationDefaults.providerID] = GatewayProviderSecret(apiKey: "")
+        if config.providerSecrets[GatewayConfigurationDefaults.providerID] == nil {
+            config.providerSecrets[GatewayConfigurationDefaults.providerID] = GatewayProviderSecret(apiKey: "")
             changed = true
         }
-        if changed {
+        if !existed || changed {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            try encoder.encode(secrets).write(to: secretsURL, options: .atomic)
-            report.installed.append("secrets.json")
+            try encoder.encode(config).write(to: configURL, options: .atomic)
+            if existed {
+                report.installed.append("config.json")
+            } else {
+                report.created.append("config.json")
+            }
         }
-        try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: secretsURL.path)
+        try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configURL.path)
     }
 }

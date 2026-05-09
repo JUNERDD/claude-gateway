@@ -53,6 +53,18 @@ final class OnboardingCoordinatorTests: XCTestCase {
         XCTAssertFalse(coordinator.isPresented)
     }
 
+    func testSetupRequirementPresentsEvenAfterInitialFlowWasDismissed() throws {
+        let defaults = try freshDefaults()
+        let coordinator = OnboardingCoordinator(defaults: defaults)
+
+        coordinator.presentIfNeeded()
+        coordinator.skipInitialFlow()
+        coordinator.presentIfNeeded(requiresSetup: true)
+
+        XCTAssertTrue(coordinator.isPresented)
+        XCTAssertEqual(coordinator.presentationMode, .initial)
+    }
+
     private func freshDefaults() throws -> UserDefaults {
         let suiteName = "ClaudeGatewayTests.Onboarding.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
