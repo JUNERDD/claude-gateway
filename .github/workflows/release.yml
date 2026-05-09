@@ -28,6 +28,9 @@ jobs:
           VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Info.plist)
           test "${GITHUB_REF_NAME}" = "v${VERSION}"
 
+      - name: Clean build cache
+        run: rm -rf .build
+
       - name: Package DMG
         run: ./scripts/package_dmg.sh
 
