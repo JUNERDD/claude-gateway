@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.19 - 2026-05-09
+
+### Added
+
+- Added automatic update checker with manual check, auto-check toggle, and Updates settings pane.
+- Added prefix-based model route matching for more flexible upstream routing.
+
+### Changed
+
+- Simplified dashboard metrics by removing trend comparisons and showing the active time range instead.
+- Enhanced DeepSeek V4 Pro prompt with Orchestrator-Executor work mode guidance for Pro+Flash subagent workflows.
+- Removed "Recent Requests" section from the overview page.
+
 ## 1.0.18 - 2026-05-09
 
 ### Changed
