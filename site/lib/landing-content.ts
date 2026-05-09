@@ -1,7 +1,6 @@
 /** 重新收窄信息架构：单承诺 → 三条原则 → 一条路径 → 安装 → 收尾 FAQ */
 
 export const heroCopy = {
-  brand: "Claude Gateway",
   kicker: "macOS · local control plane",
   title: "Own the wire between Claude and your models.",
   lede:

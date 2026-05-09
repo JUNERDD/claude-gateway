@@ -98,13 +98,7 @@ export function LandingHero() {
           >
             <motion.p
               variants={rise}
-              className="relative font-serif text-lg font-medium tracking-[-0.02em] text-white md:text-xl"
-            >
-              {heroCopy.brand}
-            </motion.p>
-            <motion.p
-              variants={rise}
-              className="relative mt-2 font-mono text-[11px] font-semibold uppercase tracking-[0.22em] text-[#c8ff3d]/90"
+              className="relative font-mono text-[11px] font-semibold uppercase tracking-[0.22em] text-[#c8ff3d]/90"
             >
               {heroCopy.kicker}
             </motion.p>
