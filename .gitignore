@@ -18,5 +18,5 @@ site/coverage/
 *.tmp
 *.bak
 
-# Secrets should only live in ~/.config/claude-deepseek-gateway.
+# Secrets should only live in ~/.config/claude-gateway.
 secrets.env
