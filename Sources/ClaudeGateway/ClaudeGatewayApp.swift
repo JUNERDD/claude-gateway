@@ -35,6 +35,7 @@ struct ClaudeGatewayApp: App {
     @StateObject private var onboarding = OnboardingCoordinator()
     @StateObject private var runner = ProxyController()
     @StateObject private var navigation = GatewayNavigationStore()
+    @StateObject private var updateChecker = UpdateChecker()
 
     var body: some Scene {
         Window("Claude Gateway", id: "main") {
@@ -42,7 +43,8 @@ struct ClaudeGatewayApp: App {
                 settings: proxySettings,
                 onboarding: onboarding,
                 runner: runner,
-                navigation: navigation
+                navigation: navigation,
+                updateChecker: updateChecker
             )
         }
         .defaultSize(width: 1512, height: 1040)
@@ -58,6 +60,12 @@ struct ClaudeGatewayApp: App {
 
             CommandGroup(after: .help) {
                 Button {
+                    Task { await updateChecker.checkForUpdates() }
+                } label: {
+                    Label("Check for Updates...", systemImage: "arrow.triangle.2.circlepath")
+                }
+
+                Button {
                     onboarding.showOnboarding()
                 } label: {
                     Label("Show Onboarding", systemImage: "sparkles")
@@ -66,7 +74,7 @@ struct ClaudeGatewayApp: App {
         }
 
         Settings {
-            SettingsView(settings: proxySettings)
+            SettingsView(settings: proxySettings, updateChecker: updateChecker)
         }
     }
 }

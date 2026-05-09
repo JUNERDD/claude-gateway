@@ -13,6 +13,7 @@ struct ContentView: View {
     @ObservedObject var onboarding: OnboardingCoordinator
     @ObservedObject var runner: ProxyController
     @ObservedObject var navigation: GatewayNavigationStore
+    @ObservedObject var updateChecker: UpdateChecker
     @StateObject private var dashboard = GatewayDashboardStore()
     @Environment(\.openSettings) private var openSettings
     @Environment(\.openWindow) private var openWindow
@@ -38,6 +39,9 @@ struct ContentView: View {
             }
             onboarding.presentIfNeeded(requiresSetup: !settings.setupIsComplete)
             wireStatusBarManager()
+            if updateChecker.autoCheckEnabled {
+                Task { await updateChecker.checkForUpdates() }
+            }
         }
         .onReceive(refreshTimer) { _ in
             if onboarding.isPresented {
@@ -72,6 +76,7 @@ struct ContentView: View {
                 selectedSection: $navigation.selectedSection,
                 settings: settings,
                 runner: runner,
+                updateChecker: updateChecker,
                 snapshot: dashboard.snapshot
             )
             .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 280)
@@ -333,6 +338,7 @@ private struct SidebarView: View {
     @Binding var selectedSection: GatewaySection
     @ObservedObject var settings: ProxySettingsStore
     @ObservedObject var runner: ProxyController
+    @ObservedObject var updateChecker: UpdateChecker
     var snapshot: GatewayDashboardSnapshot
 
     var body: some View {
@@ -356,7 +362,7 @@ private struct SidebarView: View {
         .scrollContentBackground(.hidden)
         .background(Color.clear)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            SidebarFooter(settings: settings, runner: runner, snapshot: snapshot)
+            SidebarFooter(settings: settings, runner: runner, updateChecker: updateChecker, snapshot: snapshot)
         }
     }
 }
@@ -364,6 +370,7 @@ private struct SidebarView: View {
 private struct SidebarFooter: View {
     @ObservedObject var settings: ProxySettingsStore
     @ObservedObject var runner: ProxyController
+    @ObservedObject var updateChecker: UpdateChecker
     var snapshot: GatewayDashboardSnapshot
 
     var body: some View {
@@ -390,12 +397,48 @@ private struct SidebarFooter: View {
                 SidebarFooterMetric(label: "Models", value: "\(settings.advertisedModels.count)")
             }
 
+            updateBadge
+
             Text(appVersionText)
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
+    }
+
+    @ViewBuilder
+    private var updateBadge: some View {
+        if updateChecker.isUpdateAvailable, let version = updateChecker.latestVersion {
+            Button {
+                if let url = URL(string: "https://github.com/JUNERDD/claude-gateway/releases/latest") {
+                    NSWorkspace.shared.open(url)
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .font(.caption)
+                    Text("Update v\(version)")
+                        .font(.caption.weight(.medium))
+                }
+                .foregroundStyle(.blue)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(.blue.opacity(0.1))
+                )
+            }
+            .buttonStyle(.plain)
+        } else if updateChecker.isChecking {
+            HStack(spacing: 4) {
+                ProgressView()
+                    .scaleEffect(0.6)
+                Text("Checking updates...")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
     }
 
     private var appVersionText: String {
@@ -510,11 +553,6 @@ private struct OverviewPage: View {
             CardSection(title: "Request Rate", systemImage: "chart.xyaxis.line") {
                 RequestRateChart(snapshot: snapshot)
                     .frame(height: 210)
-            }
-
-            CardSection(title: "Recent Requests", systemImage: "clock") {
-                RequestTable(rows: snapshot.recentRequests, compact: true)
-                    .frame(minHeight: 230)
             }
         }
     }
@@ -644,57 +682,36 @@ private struct MetricsGrid: View {
             MetricTile(
                 title: "Requests",
                 value: AppFormat.integer(snapshot.totalRequests),
-                detail: trendText(current: Double(snapshot.totalRequests), previous: Double(snapshot.previousTotalRequests)),
-                isGood: trendIsGood(current: Double(snapshot.totalRequests), previous: Double(snapshot.previousTotalRequests))
+                subtitle: snapshot.range.rawValue
             )
             MetricTile(
                 title: "Input Tokens",
                 value: AppFormat.compact(snapshot.inputTokens),
-                detail: trendText(current: Double(snapshot.inputTokens), previous: Double(snapshot.previousInputTokens)),
-                isGood: trendIsGood(current: Double(snapshot.inputTokens), previous: Double(snapshot.previousInputTokens))
+                subtitle: snapshot.range.rawValue
             )
             MetricTile(
                 title: "Output Tokens",
                 value: AppFormat.compact(snapshot.outputTokens),
-                detail: trendText(current: Double(snapshot.outputTokens), previous: Double(snapshot.previousOutputTokens)),
-                isGood: trendIsGood(current: Double(snapshot.outputTokens), previous: Double(snapshot.previousOutputTokens))
+                subtitle: snapshot.range.rawValue
             )
             MetricTile(
                 title: "Average Latency",
                 value: AppFormat.latency(snapshot.averageLatencyMs),
-                detail: trendText(current: snapshot.averageLatencyMs, previous: snapshot.previousAverageLatencyMs),
-                isGood: trendIsGood(current: snapshot.averageLatencyMs, previous: snapshot.previousAverageLatencyMs, lowerIsBetter: true)
+                subtitle: snapshot.range.rawValue
             )
             MetricTile(
                 title: "Error Rate",
                 value: AppFormat.percent(snapshot.errorRate),
-                detail: trendText(current: snapshot.errorRate, previous: snapshot.previousErrorRate),
-                isGood: trendIsGood(current: snapshot.errorRate, previous: snapshot.previousErrorRate, lowerIsBetter: true)
+                subtitle: snapshot.range.rawValue
             )
         }
-    }
-
-    private func trendText(current: Double?, previous: Double?) -> String {
-        guard let current, let previous else { return "No comparison" }
-        guard previous > 0 else { return current > 0 ? "New in this range" : "No change" }
-        let delta = (current - previous) / previous
-        guard abs(delta) >= 0.005 else { return "No change" }
-        let arrow = delta > 0 ? "Up" : "Down"
-        return "\(arrow) \(AppFormat.percent(abs(delta)))"
-    }
-
-    private func trendIsGood(current: Double?, previous: Double?, lowerIsBetter: Bool = false) -> Bool? {
-        guard let current, let previous, previous > 0 else { return nil }
-        guard abs(current - previous) >= 0.000_001 else { return nil }
-        return lowerIsBetter ? current < previous : current > previous
     }
 }
 
 private struct MetricTile: View {
     var title: String
     var value: String
-    var detail: String
-    var isGood: Bool?
+    var subtitle: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -706,25 +723,13 @@ private struct MetricTile: View {
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
-            HStack(spacing: 5) {
-                if let isGood {
-                    Image(systemName: isGood ? "arrow.up.right" : "arrow.down.right")
-                        .font(.caption2.weight(.semibold))
-                }
-                Text(detail)
-                    .lineLimit(1)
-            }
-            .font(.caption)
-            .foregroundStyle(trendColor)
+            Text(subtitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-    }
-
-    private var trendColor: Color {
-        guard let isGood else { return .secondary }
-        return isGood ? .green : .orange
     }
 }
 

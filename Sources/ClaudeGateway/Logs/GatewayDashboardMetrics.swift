@@ -22,9 +22,6 @@ enum GatewayDashboardRange: String, CaseIterable, Hashable, Identifiable {
         }
     }
 
-    var comparisonLabel: String {
-        "vs previous \(rawValue)"
-    }
 }
 
 @MainActor
@@ -86,22 +83,13 @@ struct GatewayDashboardSnapshot {
     var range: GatewayDashboardRange
     var generatedAt: Date
     var totalRequests: Int
-    var previousTotalRequests: Int
     var inputTokens: Int
-    var previousInputTokens: Int
     var outputTokens: Int
-    var previousOutputTokens: Int
     var averageLatencyMs: Double?
-    var previousAverageLatencyMs: Double?
     var errorRate: Double
-    var previousErrorRate: Double
     var issueCount: Int
     var chartBuckets: [Int]
     var requestRows: [DashboardRequestRow]
-
-    var recentRequests: [DashboardRequestRow] {
-        Array(requestRows.prefix(8))
-    }
 
     var issueRows: [DashboardRequestRow] {
         requestRows.filter(\.isIssue)
@@ -112,15 +100,10 @@ struct GatewayDashboardSnapshot {
             range: range,
             generatedAt: Date(),
             totalRequests: 0,
-            previousTotalRequests: 0,
             inputTokens: 0,
-            previousInputTokens: 0,
             outputTokens: 0,
-            previousOutputTokens: 0,
             averageLatencyMs: nil,
-            previousAverageLatencyMs: nil,
             errorRate: 0,
-            previousErrorRate: 0,
             issueCount: 0,
             chartBuckets: Array(repeating: 0, count: 12),
             requestRows: []
@@ -132,19 +115,14 @@ struct GatewayDashboardSnapshot {
     }
 
     static func make(from records: [GatewayMetricRecord], range: GatewayDashboardRange, now: Date) -> GatewayDashboardSnapshot {
-        let currentStart = now.addingTimeInterval(-range.duration)
-        let previousStart = now.addingTimeInterval(-range.duration * 2)
+        let windowStart = now.addingTimeInterval(-range.duration)
 
-        let current = records.filter { record in
+        let inWindow = records.filter { record in
             guard let date = record.sortDate else { return false }
-            return date >= currentStart && date <= now
-        }
-        let previous = records.filter { record in
-            guard let date = record.sortDate else { return false }
-            return date >= previousStart && date < currentStart
+            return date >= windowStart && date <= now
         }
 
-        let requestRows = records
+        let requestRows = inWindow
             .sorted { lhs, rhs in
                 (lhs.sortDate ?? .distantPast) > (rhs.sortDate ?? .distantPast)
             }
@@ -154,18 +132,13 @@ struct GatewayDashboardSnapshot {
         return GatewayDashboardSnapshot(
             range: range,
             generatedAt: now,
-            totalRequests: current.count,
-            previousTotalRequests: previous.count,
-            inputTokens: current.reduce(0) { $0 + $1.inputTokens },
-            previousInputTokens: previous.reduce(0) { $0 + $1.inputTokens },
-            outputTokens: current.reduce(0) { $0 + $1.outputTokens },
-            previousOutputTokens: previous.reduce(0) { $0 + $1.outputTokens },
-            averageLatencyMs: averageLatency(current),
-            previousAverageLatencyMs: averageLatency(previous),
-            errorRate: errorRate(current),
-            previousErrorRate: errorRate(previous),
-            issueCount: current.filter(\.isIssue).count,
-            chartBuckets: bucketCounts(records: current, start: currentStart, duration: range.duration),
+            totalRequests: inWindow.count,
+            inputTokens: inWindow.reduce(0) { $0 + $1.inputTokens },
+            outputTokens: inWindow.reduce(0) { $0 + $1.outputTokens },
+            averageLatencyMs: averageLatency(inWindow),
+            errorRate: errorRate(inWindow),
+            issueCount: inWindow.filter(\.isIssue).count,
+            chartBuckets: bucketCounts(records: inWindow, start: windowStart, duration: range.duration),
             requestRows: Array(requestRows)
         )
     }
@@ -173,13 +146,6 @@ struct GatewayDashboardSnapshot {
     var requestRate: Double {
         guard range.duration > 0 else { return 0 }
         return Double(totalRequests) / range.duration
-    }
-
-    var healthText: String {
-        if totalRequests == 0 {
-            return issueCount > 0 ? "Issues" : "--"
-        }
-        return issueCount == 0 ? "OK" : "\(issueCount)"
     }
 
     private static func averageLatency(_ records: [GatewayMetricRecord]) -> Double? {

@@ -60,7 +60,6 @@ final class GatewayDashboardSnapshotTests: XCTestCase {
         let snapshot = GatewayDashboardSnapshot.make(from: logText, range: .oneMinute, now: now)
 
         XCTAssertEqual(snapshot.totalRequests, 2)
-        XCTAssertEqual(snapshot.previousTotalRequests, 1)
         XCTAssertEqual(snapshot.inputTokens, 52)
         XCTAssertEqual(snapshot.outputTokens, 36)
         XCTAssertEqual(snapshot.averageLatencyMs, 725)

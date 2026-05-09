@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @ObservedObject var settings: ProxySettingsStore
+    @ObservedObject var updateChecker: UpdateChecker
 
     var body: some View {
         VStack(spacing: 0) {
@@ -32,6 +33,11 @@ struct SettingsView: View {
                 ClaudeSettingsPane(settings: settings)
                     .tabItem {
                         Label("Claude", systemImage: "laptopcomputer")
+                    }
+
+                UpdatesSettingsPane(updateChecker: updateChecker)
+                    .tabItem {
+                        Label("Updates", systemImage: "arrow.triangle.2.circlepath")
                     }
 
                 RuntimeSettingsPane(settings: settings)
@@ -400,6 +406,86 @@ private struct ClaudeSettingsPane: View {
                 .frame(height: 96)
             }
         }
+    }
+}
+
+private struct UpdatesSettingsPane: View {
+    @ObservedObject var updateChecker: UpdateChecker
+
+    var body: some View {
+        Form {
+            Section("Update Checking") {
+                Toggle("Automatically check for updates", isOn: $updateChecker.autoCheckEnabled)
+
+                HStack {
+                    Button {
+                        Task { await updateChecker.checkForUpdates() }
+                    } label: {
+                        if updateChecker.isChecking {
+                            Label("Checking...", systemImage: "hourglass")
+                        } else {
+                            Label("Check Now", systemImage: "arrow.triangle.2.circlepath")
+                        }
+                    }
+                    .disabled(updateChecker.isChecking)
+
+                    Spacer()
+                }
+                .padding(.vertical, 2)
+            }
+
+            Section("Status") {
+                if updateChecker.isUpdateAvailable, let version = updateChecker.latestVersion {
+                    LabeledContent("Latest Version") {
+                        Text("v\(version)")
+                            .foregroundStyle(.blue)
+                            .fontWeight(.medium)
+                    }
+                    LabeledContent("Action") {
+                        Link("Download from GitHub", destination: URL(string: "https://github.com/JUNERDD/claude-gateway/releases/latest")!)
+                    }
+                } else if updateChecker.latestVersion != nil {
+                    LabeledContent("Status") {
+                        Label("Up to date", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    }
+                } else if updateChecker.isChecking {
+                    LabeledContent("Status") {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                            Text("Checking...")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } else {
+                    LabeledContent("Status") {
+                        Text("Not checked yet")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let error = updateChecker.errorMessage {
+                    LabeledContent("Error") {
+                        Text(error)
+                            .foregroundStyle(.red)
+                            .font(.caption)
+                    }
+                }
+
+                if let date = updateChecker.lastCheckDate {
+                    LabeledContent("Last Checked") {
+                        Text(date, style: .date)
+                            .foregroundStyle(.secondary)
+                        Text(date, style: .time)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

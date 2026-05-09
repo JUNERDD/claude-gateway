@@ -27,7 +27,14 @@ struct ProxySettings {
         else {
             return defaultRoute
         }
-        return modelRoutes.first { $0.alias == alias }?.target ?? defaultRoute
+        if let exact = modelRoutes.first(where: { $0.alias == alias }) {
+            return exact.target
+        }
+        let sorted = modelRoutes.sorted { $0.alias.count > $1.alias.count }
+        if let prefix = sorted.first(where: { alias.hasPrefix($0.alias) }) {
+            return prefix.target
+        }
+        return defaultRoute
     }
 
     private func uniqueNonEmpty(_ values: [String]) -> [String] {
