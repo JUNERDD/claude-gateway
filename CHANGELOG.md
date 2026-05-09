@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.20 - 2026-05-09
+
+### Changed
+
+- Increased log table row height (28→34) and cell spacing for better readability.
+- Fixed CI release build to clean `.build` cache before packaging, preventing stale artifacts in release DMGs.
+
 ## 1.0.19 - 2026-05-09
 
 ### Added
