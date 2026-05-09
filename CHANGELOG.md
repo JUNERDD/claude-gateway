@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.21 - 2026-05-10
+
+### Added
+
+- Automatically merge default sandbox network domains into Claude Code settings.json during sync, enabling subagent GitHub access without manual sandbox config.
+
 ## 1.0.20 - 2026-05-09
 
 ### Changed
