@@ -660,6 +660,8 @@ enum ClaudeDesktopConfigSync {
                 )
             }
 
+            mergeSandboxNetworkDomains(into: &object, report: &report)
+
             if let model = object["model"] as? String,
                 let normalizedModel = normalizedClaudeCodeModel(model)
             {
@@ -695,6 +697,46 @@ enum ClaudeDesktopConfigSync {
         settings.provider(id: settings.defaultRoute.providerID)
             ?? settings.provider(id: settings.defaultProviderID)
             ?? settings.providers.first
+    }
+
+    private static let defaultSandboxDomains: [String] = [
+        "github.com",
+        "*.github.com",
+        "*.githubusercontent.com",
+    ]
+
+    private static func mergeSandboxNetworkDomains(into object: inout [String: Any], report: inout ClaudeConfigSyncReport) {
+        let existingSandbox = object["sandbox"] as? [String: Any]
+        guard existingSandbox == nil || existingSandbox is [String: Any] else {
+            report.warnings.append("Claude Code settings.json 的 sandbox 不是 JSON object，跳过 sandbox 域名合并")
+            return
+        }
+        var sandbox = existingSandbox ?? [:]
+
+        let existingNetwork = sandbox["network"] as? [String: Any]
+        guard existingNetwork == nil || existingNetwork is [String: Any] else {
+            report.warnings.append("Claude Code settings.json 的 sandbox.network 不是 JSON object，跳过 sandbox 域名合并")
+            return
+        }
+        var network = existingNetwork ?? [:]
+
+        let existingDomains = network["allowedDomains"] as? [String]
+        guard existingDomains == nil || existingDomains is [String] else {
+            report.warnings.append("Claude Code settings.json 的 sandbox.network.allowedDomains 不是字符串数组，跳过合并")
+            return
+        }
+
+        var merged = Set(existingDomains ?? [])
+        for domain in defaultSandboxDomains {
+            merged.insert(domain)
+        }
+
+        let sorted = merged.sorted()
+        guard sorted != (existingDomains ?? []).sorted() else { return }
+
+        network["allowedDomains"] = sorted
+        sandbox["network"] = network
+        object["sandbox"] = sandbox
     }
 
     private static func mergeClaudeCodeEnvironment(
