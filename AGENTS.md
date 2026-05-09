@@ -8,12 +8,24 @@
 - When the work is complete, open a pull request against `main`. Wait for CI checks to pass before merging.
 - Merge via **squash and merge** or **rebase and merge** to keep the main history linear and clean.
 
+## Code Review
+
+Findings are classified by severity:
+
+| Level | Description | Action |
+|-------|-------------|--------|
+| **P0** | Critical — security vulnerability, data loss, broken build, credential leak | Must fix before merge |
+| **P1** | High — broken feature, user-facing regression, incorrect behavior | Should fix before merge |
+| **P2** | Medium — code quality, minor inconsistency, missing test coverage | Nice to fix, not blocking |
+| **P3** | Low — style nit, future consideration, documentation polish | Suggestion only |
+
+**Merge rule**: If a review has no P0 or P1 findings, the PR is cleared to merge. P2 and P3 items can be addressed in follow-up PRs.
+
 ## Pull Requests
 
 - PR title should be a concise summary of the change (under 70 characters).
 - PR body should include a brief **Summary** of what changed and a **Test plan** checklist.
-- Link any related issues or previous PRs when relevant.
-- Do not merge until all CI checks pass.
+- Do not merge until all CI checks pass and the merge rule above is satisfied.
 
 ## Release Process
 

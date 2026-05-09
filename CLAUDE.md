@@ -21,7 +21,7 @@
    EOF
    )"
    ```
-4. Wait for CI checks to pass, then merge the PR (squash or rebase, not merge commit).
+4. Wait for CI checks to pass and the review to clear (no P0/P1 findings), then squash-merge the PR.
 5. After merging, switch back to `main`, pull, and delete the local branch.
 
 ## Version Bumps and Releases
