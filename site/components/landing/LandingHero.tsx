@@ -7,7 +7,7 @@ import { useRef } from "react";
 import { ArrowDownToLine, GitBranch } from "lucide-react";
 import { downloadUrl, githubUrl } from "@/lib/site-urls";
 import { heroCopy } from "@/lib/landing-content";
-import { rise, stagger } from "./motion-presets";
+import { ctaTransition, rise, stagger } from "./motion-presets";
 
 /** Full-bleed plane：影像左偏、右缘压暗，让 UI 截图退成氛围而非主角 */
 function HeroBackdrop({
@@ -30,7 +30,7 @@ function HeroBackdrop({
         aria-hidden
       >
         <motion.div
-          className="relative h-full w-full"
+          className="relative h-full w-full origin-[32%_0%] will-change-transform"
           initial={{ scale: 1.07 }}
           animate={{ scale: 1 }}
           transition={{ duration: 1.25, ease: [0.22, 1, 0.36, 1] }}
@@ -41,7 +41,7 @@ function HeroBackdrop({
             fill
             priority
             sizes="100vw"
-            className="object-cover object-[28%_52%] md:object-[30%_48%] lg:object-[32%_46%]"
+            className="object-cover object-[24%_18%] sm:object-[26%_19%] md:object-[28%_20%] lg:object-[30%_20%] xl:object-[30%_18%]"
           />
         </motion.div>
       </motion.div>
@@ -61,7 +61,7 @@ function HeroBackdrop({
       />
 
       <div
-        className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#050506]/82 via-transparent to-[#050506]/3 to-40%"
+        className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#050506]/82 via-transparent to-[#050506]/[0.02] to-[28%]"
         aria-hidden
       />
       <div
@@ -96,13 +96,6 @@ export function LandingHero() {
             animate="visible"
             className="relative max-w-xl md:max-w-2xl"
           >
-            <p
-              className="pointer-events-none absolute -left-1 -top-6 select-none font-serif text-[clamp(2.75rem,11vw,6.25rem)] font-semibold leading-[0.85] tracking-[-0.055em] text-white/[0.04] sm:-top-10 sm:text-[clamp(3rem,9vw,5.5rem)] md:-left-2 md:-top-14"
-              aria-hidden
-            >
-              {heroCopy.brand}
-            </p>
-
             <motion.p
               variants={rise}
               className="relative font-serif text-lg font-medium tracking-[-0.02em] text-white md:text-xl"
@@ -138,24 +131,30 @@ export function LandingHero() {
               variants={rise}
               className="relative mt-10 flex flex-col gap-3 sm:flex-row sm:flex-wrap"
             >
-              <a
+              <motion.a
                 href={downloadUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-[#c8ff3d] px-7 text-sm font-semibold text-black transition hover:brightness-105"
+                whileHover={{ y: -2 }}
+                whileTap={{ scale: 0.98 }}
+                transition={ctaTransition}
               >
                 <ArrowDownToLine className="size-4" aria-hidden />
                 Download DMG
-              </a>
-              <a
+              </motion.a>
+              <motion.a
                 href={githubUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-full border border-white/20 px-7 text-sm font-medium text-white/90 transition hover:border-white/40 hover:bg-white/[0.04]"
+                whileHover={{ y: -2 }}
+                whileTap={{ scale: 0.98 }}
+                transition={ctaTransition}
               >
                 <GitBranch className="size-4 text-white/70" aria-hidden />
                 View repository
-              </a>
+              </motion.a>
             </motion.div>
           </motion.div>
         </div>

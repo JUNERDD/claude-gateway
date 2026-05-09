@@ -32,3 +32,33 @@
     letter-spacing: -0.02em;
   }
 }
+
+@keyframes landing-terminal-caret {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.landing-terminal-caret {
+  display: inline-block;
+  width: 0.55ch;
+  height: 1.1em;
+  margin-left: 1px;
+  translate: 0 0.12em;
+  vertical-align: baseline;
+  border-radius: 1px;
+  background: rgba(200, 255, 61, 0.85);
+  animation: landing-terminal-caret 1.05s steps(1, end) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-terminal-caret {
+    animation: none;
+    opacity: 0.9;
+  }
+}

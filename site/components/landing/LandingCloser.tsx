@@ -4,7 +4,7 @@ import { motion } from "motion/react";
 import { ArrowDownToLine } from "lucide-react";
 import { downloadUrl, githubUrl } from "@/lib/site-urls";
 import { closerCopy, faqItems } from "@/lib/landing-content";
-import { rise, stagger, viewportSoft } from "./motion-presets";
+import { ctaTransition, rise, stagger, viewportSoft } from "./motion-presets";
 
 export function LandingCloser() {
   return (
@@ -32,26 +32,31 @@ export function LandingCloser() {
               {closerCopy.lede}
             </motion.p>
             <motion.div variants={rise} className="mt-10">
-              <a
+              <motion.a
                 href={downloadUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-[#c8ff3d] px-8 text-sm font-semibold text-black transition hover:brightness-105"
+                whileHover={{ y: -2 }}
+                whileTap={{ scale: 0.98 }}
+                transition={ctaTransition}
               >
                 <ArrowDownToLine className="size-4" aria-hidden />
                 Download latest
-              </a>
+              </motion.a>
               <p className="mt-4 font-mono text-xs text-white/40">
                 {closerCopy.compat}
               </p>
-              <a
+              <motion.a
                 href={githubUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="mt-6 inline-block text-sm text-white/50 underline decoration-white/25 underline-offset-4 transition hover:text-white"
+                whileHover={{ x: 2 }}
+                transition={ctaTransition}
               >
                 Browse source →
-              </a>
+              </motion.a>
             </motion.div>
           </div>
 

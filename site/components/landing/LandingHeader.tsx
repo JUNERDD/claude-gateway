@@ -1,8 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
-import { AnimatePresence, motion } from "motion/react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { AnimatePresence, motion, useScroll, useTransform } from "motion/react";
 import { cx } from "@/lib/cx";
 import { Menu, X } from "lucide-react";
 import { githubUrl } from "@/lib/site-urls";
@@ -35,24 +35,29 @@ function NavLinksDesktop({ onNavigate }: { onNavigate: () => void }) {
   return (
     <>
       {nav.map((itemNav) => (
-        <a
+        <motion.a
           key={itemNav.href}
           href={itemNav.href}
           className="rounded-xl px-3 py-2 text-sm text-white/65 transition hover:bg-white/[0.06] hover:text-white"
           onClick={onNavigate}
+          whileHover={{ y: -1 }}
+          transition={{ duration: 0.2, ease: menuEase }}
         >
           {itemNav.label}
-        </a>
+        </motion.a>
       ))}
-      <a
+      <motion.a
         href={githubUrl}
         target="_blank"
         rel="noopener noreferrer"
         className="rounded-xl border border-[#c8ff3d]/35 bg-[#c8ff3d]/10 px-3 py-2 text-sm font-medium text-[#c8ff3d] hover:bg-[#c8ff3d]/18 md:ml-2"
         onClick={onNavigate}
+        whileHover={{ y: -1 }}
+        whileTap={{ scale: 0.98 }}
+        transition={{ duration: 0.2, ease: menuEase }}
       >
         Source
-      </a>
+      </motion.a>
     </>
   );
 }
@@ -85,8 +90,19 @@ function NavLinksMobile({ onNavigate }: { onNavigate: () => void }) {
   );
 }
 
+const noopSubscribe = () => () => {};
+const clientSnapshot = () => true;
+const serverSnapshot = () => false;
+
+function useHydrated() {
+  return useSyncExternalStore(noopSubscribe, clientSnapshot, serverSnapshot);
+}
+
 export function LandingHeader() {
   const [open, setOpen] = useState(false);
+  const progressReady = useHydrated();
+  const { scrollYProgress } = useScroll();
+  const headerProgress = useTransform(scrollYProgress, [0, 1], [0, 1]);
 
   useEffect(() => {
     if (!open) return;
@@ -137,6 +153,13 @@ export function LandingHeader() {
             "supports-backdrop-filter:bg-black/25",
           )}
         >
+          {progressReady ? (
+            <motion.div
+              aria-hidden
+              className="pointer-events-none absolute bottom-0 left-0 right-0 h-px origin-left bg-gradient-to-r from-transparent via-[#c8ff3d]/80 to-transparent"
+              style={{ scaleX: headerProgress }}
+            />
+          ) : null}
           <a
             href="#top"
             className="flex min-w-0 items-center gap-3 text-white no-underline"

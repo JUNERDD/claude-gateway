@@ -1,7 +1,9 @@
 "use client";
 
+import { motion } from "motion/react";
 import { Terminal } from "lucide-react";
 import { githubUrl } from "@/lib/site-urls";
+import { riseSm, viewportSoft } from "./motion-presets";
 
 const links = [
   { label: "Security", href: `${githubUrl}/blob/main/SECURITY.md` },
@@ -10,7 +12,13 @@ const links = [
 
 export function LandingFooter() {
   return (
-    <footer className="border-t border-white/[0.07] px-4 py-12 md:px-6">
+    <motion.footer
+      className="border-t border-white/[0.07] px-4 py-12 md:px-6"
+      variants={riseSm}
+      initial="hidden"
+      whileInView="visible"
+      viewport={viewportSoft}
+    >
       <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-6 text-sm text-white/45 md:flex-row">
         <span className="flex items-center gap-2 font-medium text-white/80">
           <Terminal className="size-4 text-[#c8ff3d]" aria-hidden />
@@ -38,6 +46,6 @@ export function LandingFooter() {
           ))}
         </nav>
       </div>
-    </footer>
+    </motion.footer>
   );
 }
