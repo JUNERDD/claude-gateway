@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "ClaudeGateway",
-    platforms: [.macOS("14.4")],
+    platforms: [.macOS("15.0")],
     products: [
         .executable(name: "ClaudeGateway", targets: ["ClaudeGateway"]),
         .executable(name: "GatewayProxy", targets: ["GatewayProxy"]),
