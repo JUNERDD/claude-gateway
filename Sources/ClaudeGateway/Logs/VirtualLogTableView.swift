@@ -19,15 +19,15 @@ struct VirtualLogTableView: NSViewRepresentable {
         scroll.backgroundColor = .textBackgroundColor
 
         let table = NSTableView()
-        table.rowHeight = 28
-        table.intercellSpacing = NSSize(width: 0, height: 0)
+        table.rowHeight = 34
+        table.intercellSpacing = NSSize(width: 0, height: 3)
         table.usesAlternatingRowBackgroundColors = false
         table.selectionHighlightStyle = .regular
         table.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
         table.gridStyleMask = [.solidHorizontalGridLineMask]
         table.gridColor = NSColor.separatorColor.withAlphaComponent(0.35)
         table.backgroundColor = .textBackgroundColor
-        table.rowSizeStyle = .small
+        table.rowSizeStyle = .medium
         if #available(macOS 11.0, *) {
             table.style = .plain
         }
@@ -117,7 +117,7 @@ struct VirtualLogTableView: NSViewRepresentable {
         }
 
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-            28
+            34
         }
 
         func tableView(
@@ -236,8 +236,8 @@ struct VirtualLogTableView: NSViewRepresentable {
             cell.addSubview(textField)
             cell.textField = textField
             NSLayoutConstraint.activate([
-                textField.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 8),
-                textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -6),
+                textField.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 10),
+                textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -8),
                 textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
             ])
             return cell
