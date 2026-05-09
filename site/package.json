@@ -17,11 +17,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint . --max-warnings=0"
+    "lint": "eslint . --max-warnings=0",
+    "seo:verify": "node scripts/verify-seo.mjs"
   },
   "dependencies": {
-    "@heroui/react": "^3.0.3",
-    "@heroui/styles": "^3.0.3",
     "lucide-react": "^1.14.0",
     "motion": "12.38.0",
     "next": "^16.2.5",

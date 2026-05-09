@@ -56,3 +56,24 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+      - name: Verify SEO (built site)
+        env:
+          PORT: 4179
+        run: |
+          pnpm start &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          ready=""
+          for i in $(seq 1 60); do
+            if curl -fsS -o /dev/null "http://127.0.0.1:${PORT}/"; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ -z "$ready" ]; then
+            echo "Next.js did not become ready on port ${PORT}"
+            exit 1
+          fi
+          node scripts/verify-seo.mjs --base "http://127.0.0.1:${PORT}"
