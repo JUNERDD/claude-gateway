@@ -166,13 +166,22 @@ final class GatewayDashboardSnapshotTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tempDirectory) }
 
         let logURL = tempDirectory.appendingPathComponent("proxy.log")
-        let logText = event([
-            "type": "gateway_request",
-            "timestamp": "2026-05-07T09:59:50Z",
-            "requestID": "rolling-request",
-            "method": "GET",
-            "path": "/v1/models",
-        ])
+        let logText = [
+            event([
+                "type": "gateway_request",
+                "timestamp": "2026-05-07T09:59:50Z",
+                "requestID": "rolling-request",
+                "method": "GET",
+                "path": "/v1/models",
+            ]),
+            event([
+                "type": "gateway_response",
+                "timestamp": "2026-05-07T09:59:51Z",
+                "requestID": "rolling-request",
+                "status": 200,
+                "outputTokens": 1,
+            ]),
+        ].joined(separator: "\n")
         try Data(logText.utf8).write(to: logURL)
 
         var now = try XCTUnwrap(Self.isoFormatter.date(from: "2026-05-07T10:00:00Z"))
