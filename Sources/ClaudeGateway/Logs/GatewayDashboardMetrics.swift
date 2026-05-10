@@ -85,6 +85,9 @@ struct GatewayDashboardSnapshot {
     var totalRequests: Int
     var inputTokens: Int
     var outputTokens: Int
+    var cacheCreationInputTokens: Int
+    var cacheReadInputTokens: Int
+    var cacheMissTokens: Int
     var averageLatencyMs: Double?
     var errorRate: Double
     var issueCount: Int
@@ -102,6 +105,9 @@ struct GatewayDashboardSnapshot {
             totalRequests: 0,
             inputTokens: 0,
             outputTokens: 0,
+            cacheCreationInputTokens: 0,
+            cacheReadInputTokens: 0,
+            cacheMissTokens: 0,
             averageLatencyMs: nil,
             errorRate: 0,
             issueCount: 0,
@@ -135,6 +141,9 @@ struct GatewayDashboardSnapshot {
             totalRequests: inWindow.count,
             inputTokens: inWindow.reduce(0) { $0 + $1.inputTokens },
             outputTokens: inWindow.reduce(0) { $0 + $1.outputTokens },
+            cacheCreationInputTokens: inWindow.reduce(0) { $0 + $1.cacheCreationInputTokens },
+            cacheReadInputTokens: inWindow.reduce(0) { $0 + $1.cacheReadInputTokens },
+            cacheMissTokens: inWindow.reduce(0) { $0 + $1.cacheMissTokens },
             averageLatencyMs: averageLatency(inWindow),
             errorRate: errorRate(inWindow),
             issueCount: inWindow.filter(\.isIssue).count,
@@ -146,6 +155,19 @@ struct GatewayDashboardSnapshot {
     var requestRate: Double {
         guard range.duration > 0 else { return 0 }
         return Double(totalRequests) / range.duration
+    }
+
+    var cacheHitRate: Double? {
+        if cacheMissTokens > 0 {
+            // DeepSeek path: hits / (hits + misses)
+            let denominator = cacheReadInputTokens + cacheMissTokens
+            guard denominator > 0 else { return nil }
+            return Double(cacheReadInputTokens) / Double(denominator)
+        }
+        // Anthropic path: reads / (input + writes + reads)
+        let denominator = inputTokens + cacheCreationInputTokens + cacheReadInputTokens
+        guard denominator > 0 else { return nil }
+        return Double(cacheReadInputTokens) / Double(denominator)
     }
 
     private static func averageLatency(_ records: [GatewayMetricRecord]) -> Double? {
@@ -221,6 +243,9 @@ struct GatewayMetricRecord {
     var targetModel: String = ""
     var inputTokens: Int = 0
     var outputTokens: Int = 0
+    var cacheCreationInputTokens: Int = 0
+    var cacheReadInputTokens: Int = 0
+    var cacheMissTokens: Int = 0
     var status: Int?
     var latencyMs: Int?
     var errorMessage: String?
@@ -289,6 +314,9 @@ private enum GatewayMetricsParser {
                     ?? intValue(object["outputTokensEstimate"])
                     ?? estimateTokens(fromBytes: intValue(object["responseBodyBytes"]))
                     ?? record.outputTokens
+                record.cacheCreationInputTokens = intValue(object["cacheCreationInputTokens"]) ?? record.cacheCreationInputTokens
+                record.cacheReadInputTokens = intValue(object["cacheReadInputTokens"]) ?? record.cacheReadInputTokens
+                record.cacheMissTokens = intValue(object["cacheMissTokens"]) ?? record.cacheMissTokens
 
             case "gateway_error":
                 record.responseAt = timestamp ?? record.responseAt

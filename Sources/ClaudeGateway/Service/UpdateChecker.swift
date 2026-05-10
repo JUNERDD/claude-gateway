@@ -50,6 +50,7 @@ final class UpdateChecker: ObservableObject {
 
         var request = URLRequest(url: url)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.setValue("claude-gateway/\(currentVersion ?? "0")", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 15
 
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -57,16 +58,55 @@ final class UpdateChecker: ObservableObject {
         guard let http = response as? HTTPURLResponse else {
             throw UpdateCheckError.badResponse
         }
-        guard http.statusCode == 200 else {
-            throw UpdateCheckError.httpStatus(http.statusCode)
+
+        if http.statusCode == 200,
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let tagName = json["tag_name"] as? String
+        {
+            return try parseVersion(from: tagName)
         }
 
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let tagName = json["tag_name"] as? String
+        // Fallback: /releases/latest may 404 if the latest is a pre-release.
+        // Try the list endpoint which includes pre-releases.
+        return try await fetchLatestFromList()
+    }
+
+    private func fetchLatestFromList() async throws -> String {
+        guard let url = URL(string: "https://api.github.com/repos/\(repoOwner)/\(repoName)/releases?per_page=5") else {
+            throw UpdateCheckError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.setValue("claude-gateway/\(currentVersion ?? "0")", forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = 15
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw UpdateCheckError.httpStatus((response as? HTTPURLResponse)?.statusCode ?? 0)
+        }
+
+        guard let releases = try JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+              !releases.isEmpty
         else {
             throw UpdateCheckError.parseFailure
         }
 
+        // Pick the highest non-draft tag_name (pre-releases included).
+        let tags: [String] = releases.compactMap { release in
+            guard let draft = release["draft"] as? Bool, !draft else { return nil }
+            return release["tag_name"] as? String
+        }
+
+        guard let highestTag = tags.first else {
+            throw UpdateCheckError.parseFailure
+        }
+
+        return try parseVersion(from: highestTag)
+    }
+
+    private func parseVersion(from tagName: String) throws -> String {
         let version = tagName.hasPrefix("v") ? String(tagName.dropFirst()) : tagName
         guard !version.isEmpty else { throw UpdateCheckError.parseFailure }
         return version

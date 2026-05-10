@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.22 - 2026-05-10
+
+### Added
+
+- Added cache metrics to the overview page: Cache Reads, Cache Writes, and Cache Hit Rate tiles.
+- Added DeepSeek cache field extraction (`prompt_cache_hit_tokens` / `prompt_cache_miss_tokens`) with automatic hit rate formula selection for DeepSeek vs Anthropic providers.
+
+### Changed
+
+- Moved update available notification from sidebar footer to a prominent top banner for better discoverability.
+
+### Fixed
+
+- Fixed update checker not detecting new releases due to missing User-Agent header and pre-release-only tag edge case.
+
 ## 1.0.21 - 2026-05-10
 
 ### Added

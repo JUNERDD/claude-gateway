@@ -121,6 +121,15 @@ final class UpstreamForwarder: NSObject, URLSessionDataDelegate {
             if let outputTokens = usage.outputTokens {
                 event["outputTokens"] = outputTokens
             }
+            if let cacheCreation = usage.cacheCreationInputTokens {
+                event["cacheCreationInputTokens"] = cacheCreation
+            }
+            if let cacheRead = usage.cacheReadInputTokens {
+                event["cacheReadInputTokens"] = cacheRead
+            }
+            if let cacheMiss = usage.cacheMissTokens {
+                event["cacheMissTokens"] = cacheMiss
+            }
             logGatewayEvent(event)
             if let issue = Self.detectProviderCompatibilityIssue(
                 status: statusCode,
@@ -188,15 +197,28 @@ final class UpstreamForwarder: NSObject, URLSessionDataDelegate {
         return nil
     }
 
-    private static func extractUsage(from data: Data) -> (inputTokens: Int?, outputTokens: Int?) {
-        guard !data.isEmpty else { return (nil, nil) }
+    private static func extractUsage(from data: Data) -> (inputTokens: Int?, outputTokens: Int?, cacheCreationInputTokens: Int?, cacheReadInputTokens: Int?, cacheMissTokens: Int?) {
+        guard !data.isEmpty else { return (nil, nil, nil, nil, nil) }
         if let object = decodeJSON(data), let usage = object["usage"] as? [String: Any] {
-            return (intValue(usage["input_tokens"]), intValue(usage["output_tokens"]))
+            let cacheRead = intValue(usage["cache_read_input_tokens"])
+                ?? intValue(usage["prompt_cache_hit_tokens"])
+            let cacheCreate = intValue(usage["cache_creation_input_tokens"])
+            let cacheMiss = intValue(usage["prompt_cache_miss_tokens"])
+            return (
+                intValue(usage["input_tokens"]),
+                intValue(usage["output_tokens"]),
+                cacheCreate,
+                cacheRead,
+                cacheMiss
+            )
         }
 
-        guard let text = String(data: data, encoding: .utf8) else { return (nil, nil) }
+        guard let text = String(data: data, encoding: .utf8) else { return (nil, nil, nil, nil, nil) }
         var inputTokens: Int?
         var outputTokens: Int?
+        var cacheCreationInputTokens: Int?
+        var cacheReadInputTokens: Int?
+        var cacheMissTokens: Int?
 
         for rawLine in text.split(whereSeparator: \.isNewline) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
@@ -211,16 +233,26 @@ final class UpstreamForwarder: NSObject, URLSessionDataDelegate {
             if let usage = object["usage"] as? [String: Any] {
                 inputTokens = intValue(usage["input_tokens"]) ?? inputTokens
                 outputTokens = intValue(usage["output_tokens"]) ?? outputTokens
+                cacheCreationInputTokens = intValue(usage["cache_creation_input_tokens"]) ?? cacheCreationInputTokens
+                cacheReadInputTokens = intValue(usage["cache_read_input_tokens"])
+                    ?? intValue(usage["prompt_cache_hit_tokens"])
+                    ?? cacheReadInputTokens
+                cacheMissTokens = intValue(usage["prompt_cache_miss_tokens"]) ?? cacheMissTokens
             }
             if let message = object["message"] as? [String: Any],
                 let usage = message["usage"] as? [String: Any]
             {
                 inputTokens = intValue(usage["input_tokens"]) ?? inputTokens
                 outputTokens = intValue(usage["output_tokens"]) ?? outputTokens
+                cacheCreationInputTokens = intValue(usage["cache_creation_input_tokens"]) ?? cacheCreationInputTokens
+                cacheReadInputTokens = intValue(usage["cache_read_input_tokens"])
+                    ?? intValue(usage["prompt_cache_hit_tokens"])
+                    ?? cacheReadInputTokens
+                cacheMissTokens = intValue(usage["prompt_cache_miss_tokens"]) ?? cacheMissTokens
             }
         }
 
-        return (inputTokens, outputTokens)
+        return (inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens, cacheMissTokens)
     }
 
     private static func decodeJSON(_ data: Data) -> [String: Any]? {

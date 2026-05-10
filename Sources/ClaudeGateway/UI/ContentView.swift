@@ -361,8 +361,13 @@ private struct SidebarView: View {
         .contentMargins(.top, 8, for: .scrollContent)
         .scrollContentBackground(.hidden)
         .background(Color.clear)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if updateChecker.isUpdateAvailable, let version = updateChecker.latestVersion {
+                SidebarUpdateBanner(version: version)
+            }
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            SidebarFooter(settings: settings, runner: runner, updateChecker: updateChecker, snapshot: snapshot)
+            SidebarFooter(settings: settings, runner: runner, snapshot: snapshot)
         }
     }
 }
@@ -370,7 +375,6 @@ private struct SidebarView: View {
 private struct SidebarFooter: View {
     @ObservedObject var settings: ProxySettingsStore
     @ObservedObject var runner: ProxyController
-    @ObservedObject var updateChecker: UpdateChecker
     var snapshot: GatewayDashboardSnapshot
 
     var body: some View {
@@ -397,48 +401,12 @@ private struct SidebarFooter: View {
                 SidebarFooterMetric(label: "Models", value: "\(settings.advertisedModels.count)")
             }
 
-            updateBadge
-
             Text(appVersionText)
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-    }
-
-    @ViewBuilder
-    private var updateBadge: some View {
-        if updateChecker.isUpdateAvailable, let version = updateChecker.latestVersion {
-            Button {
-                if let url = URL(string: "https://github.com/JUNERDD/claude-gateway/releases/latest") {
-                    NSWorkspace.shared.open(url)
-                }
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.down.circle.fill")
-                        .font(.caption)
-                    Text("Update v\(version)")
-                        .font(.caption.weight(.medium))
-                }
-                .foregroundStyle(.blue)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(.blue.opacity(0.1))
-                )
-            }
-            .buttonStyle(.plain)
-        } else if updateChecker.isChecking {
-            HStack(spacing: 4) {
-                ProgressView()
-                    .scaleEffect(0.6)
-                Text("Checking updates...")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
-        }
     }
 
     private var appVersionText: String {
@@ -469,6 +437,42 @@ private struct SidebarFooterMetric: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct SidebarUpdateBanner: View {
+    var version: String
+
+    var body: some View {
+        Button {
+            if let url = URL(string: "https://github.com/JUNERDD/claude-gateway/releases/latest") {
+                NSWorkspace.shared.open(url)
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .symbolRenderingMode(.hierarchical)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Update Available")
+                        .font(.caption.weight(.semibold))
+                    Text("v\(version)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(.blue.opacity(0.3), lineWidth: 1)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -702,6 +706,21 @@ private struct MetricsGrid: View {
             MetricTile(
                 title: "Error Rate",
                 value: AppFormat.percent(snapshot.errorRate),
+                subtitle: snapshot.range.rawValue
+            )
+            MetricTile(
+                title: "Cache Reads",
+                value: AppFormat.compact(snapshot.cacheReadInputTokens),
+                subtitle: snapshot.range.rawValue
+            )
+            MetricTile(
+                title: "Cache Writes",
+                value: AppFormat.compact(snapshot.cacheCreationInputTokens),
+                subtitle: snapshot.range.rawValue
+            )
+            MetricTile(
+                title: "Cache Hit Rate",
+                value: snapshot.cacheHitRate.map { AppFormat.percent($0) } ?? "-",
                 subtitle: snapshot.range.rawValue
             )
         }

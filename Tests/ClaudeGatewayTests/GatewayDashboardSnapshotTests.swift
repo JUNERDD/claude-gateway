@@ -22,6 +22,8 @@ final class GatewayDashboardSnapshotTests: XCTestCase {
                 "status": 200,
                 "durationMs": 250,
                 "outputTokens": 30,
+                "cacheCreationInputTokens": 8,
+                "cacheReadInputTokens": 4,
             ]),
             event([
                 "type": "gateway_request",
@@ -62,11 +64,51 @@ final class GatewayDashboardSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.totalRequests, 2)
         XCTAssertEqual(snapshot.inputTokens, 52)
         XCTAssertEqual(snapshot.outputTokens, 36)
+        XCTAssertEqual(snapshot.cacheCreationInputTokens, 8)
+        XCTAssertEqual(snapshot.cacheReadInputTokens, 4)
+        XCTAssertEqual(snapshot.cacheMissTokens, 0)
+        XCTAssertEqual(snapshot.cacheHitRate, 4.0 / 64.0, accuracy: 1e-9)
         XCTAssertEqual(snapshot.averageLatencyMs, 725)
         XCTAssertEqual(snapshot.errorRate, 0.5)
         XCTAssertEqual(snapshot.issueCount, 1)
         XCTAssertEqual(snapshot.chartBuckets.reduce(0, +), 2)
         XCTAssertEqual(snapshot.issueRows.map(\.id), ["current-error"])
+    }
+
+    func testSnapshotUsesDeepSeekCacheHitRateWhenCacheMissTokensPresent() throws {
+        let now = try XCTUnwrap(Self.isoFormatter.date(from: "2026-05-07T10:00:00Z"))
+        let logText = [
+            event([
+                "type": "gateway_request",
+                "timestamp": "2026-05-07T09:59:50Z",
+                "requestID": "ds-ok",
+                "method": "POST",
+                "path": "/v1/messages",
+                "originalModel": "claude-sonnet-4-6",
+                "targetModel": "deepseek-v4-pro[1m]",
+                "inputTokens": 200,
+            ]),
+            event([
+                "type": "gateway_response",
+                "timestamp": "2026-05-07T09:59:51Z",
+                "requestID": "ds-ok",
+                "status": 200,
+                "durationMs": 300,
+                "outputTokens": 50,
+                "cacheReadInputTokens": 120,
+                "cacheMissTokens": 80,
+            ]),
+        ].joined(separator: "\n")
+
+        let snapshot = GatewayDashboardSnapshot.make(from: logText, range: .oneMinute, now: now)
+
+        XCTAssertEqual(snapshot.totalRequests, 1)
+        XCTAssertEqual(snapshot.inputTokens, 200)
+        XCTAssertEqual(snapshot.cacheCreationInputTokens, 0)
+        XCTAssertEqual(snapshot.cacheReadInputTokens, 120)
+        XCTAssertEqual(snapshot.cacheMissTokens, 80)
+        // DeepSeek path: hits / (hits + misses) = 120 / 200
+        XCTAssertEqual(snapshot.cacheHitRate, 120.0 / 200.0, accuracy: 1e-9)
     }
 
     @MainActor
