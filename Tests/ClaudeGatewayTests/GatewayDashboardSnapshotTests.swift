@@ -67,7 +67,8 @@ final class GatewayDashboardSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.cacheCreationInputTokens, 8)
         XCTAssertEqual(snapshot.cacheReadInputTokens, 4)
         XCTAssertEqual(snapshot.cacheMissTokens, 0)
-        XCTAssertEqual(snapshot.cacheHitRate, 4.0 / 64.0, accuracy: 1e-9)
+        let hitRate1 = try XCTUnwrap(snapshot.cacheHitRate)
+        XCTAssertEqual(hitRate1, 4.0 / 64.0, accuracy: 1e-9)
         XCTAssertEqual(snapshot.averageLatencyMs, 725)
         XCTAssertEqual(snapshot.errorRate, 0.5)
         XCTAssertEqual(snapshot.issueCount, 1)
@@ -108,7 +109,8 @@ final class GatewayDashboardSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.cacheReadInputTokens, 120)
         XCTAssertEqual(snapshot.cacheMissTokens, 80)
         // DeepSeek path: hits / (hits + misses) = 120 / 200
-        XCTAssertEqual(snapshot.cacheHitRate, 120.0 / 200.0, accuracy: 1e-9)
+        let hitRate2 = try XCTUnwrap(snapshot.cacheHitRate)
+        XCTAssertEqual(hitRate2, 120.0 / 200.0, accuracy: 1e-9)
     }
 
     @MainActor
