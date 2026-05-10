@@ -72,8 +72,53 @@ final class GatewayDashboardSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.averageLatencyMs, 725)
         XCTAssertEqual(snapshot.errorRate, 0.5)
         XCTAssertEqual(snapshot.issueCount, 1)
-        XCTAssertEqual(snapshot.chartBuckets.reduce(0, +), 2)
+        XCTAssertEqual(snapshot.outputTokenBuckets.reduce(0, +), 36)
+        XCTAssertEqual(snapshot.cacheTokenBuckets.reduce(0, +), 4)
         XCTAssertEqual(snapshot.issueRows.map(\.id), ["current-error"])
+
+        // Verify bucket shape: 12 elements, sum matches window
+        XCTAssertEqual(snapshot.outputTokenBuckets.count, 12)
+        XCTAssertEqual(snapshot.cacheTokenBuckets.count, 12)
+    }
+
+    func testTokenBucketsAggregateCorrectly() throws {
+        let now = try XCTUnwrap(Self.isoFormatter.date(from: "2026-05-07T10:00:00Z"))
+        let logText = [
+            event([
+                "type": "gateway_request",
+                "timestamp": "2026-05-07T09:59:50Z",
+                "requestID": "t1",
+                "method": "POST",
+                "path": "/v1/messages",
+            ]),
+            event([
+                "type": "gateway_response",
+                "timestamp": "2026-05-07T09:59:51Z",
+                "requestID": "t1",
+                "status": 200,
+                "outputTokens": 100,
+                "cacheReadInputTokens": 20,
+            ]),
+            event([
+                "type": "gateway_request",
+                "timestamp": "2026-05-07T09:59:55Z",
+                "requestID": "t2",
+                "method": "POST",
+                "path": "/v1/messages",
+            ]),
+            event([
+                "type": "gateway_response",
+                "timestamp": "2026-05-07T09:59:56Z",
+                "requestID": "t2",
+                "status": 200,
+                "outputTokens": 50,
+                "cacheReadInputTokens": 0,
+            ]),
+        ].joined(separator: "\n")
+
+        let snapshot = GatewayDashboardSnapshot.make(from: logText, range: .oneMinute, now: now)
+        XCTAssertEqual(snapshot.outputTokenBuckets.reduce(0, +), 150)
+        XCTAssertEqual(snapshot.cacheTokenBuckets.reduce(0, +), 20)
     }
 
     func testSnapshotUsesDeepSeekCacheHitRateWhenCacheMissTokensPresent() throws {
@@ -121,13 +166,22 @@ final class GatewayDashboardSnapshotTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tempDirectory) }
 
         let logURL = tempDirectory.appendingPathComponent("proxy.log")
-        let logText = event([
-            "type": "gateway_request",
-            "timestamp": "2026-05-07T09:59:50Z",
-            "requestID": "rolling-request",
-            "method": "GET",
-            "path": "/v1/models",
-        ])
+        let logText = [
+            event([
+                "type": "gateway_request",
+                "timestamp": "2026-05-07T09:59:50Z",
+                "requestID": "rolling-request",
+                "method": "GET",
+                "path": "/v1/models",
+            ]),
+            event([
+                "type": "gateway_response",
+                "timestamp": "2026-05-07T09:59:51Z",
+                "requestID": "rolling-request",
+                "status": 200,
+                "outputTokens": 1,
+            ]),
+        ].joined(separator: "\n")
         try Data(logText.utf8).write(to: logURL)
 
         var now = try XCTUnwrap(Self.isoFormatter.date(from: "2026-05-07T10:00:00Z"))
@@ -138,7 +192,7 @@ final class GatewayDashboardSnapshotTests: XCTestCase {
         try await waitForDashboard(dashboard) { snapshot in
             snapshot.generatedAt == now && snapshot.totalRequests == 1
         }
-        let initialBuckets = dashboard.snapshot.chartBuckets
+        let initialBuckets = dashboard.snapshot.outputTokenBuckets
 
         now = try XCTUnwrap(Self.isoFormatter.date(from: "2026-05-07T10:00:06Z"))
         dashboard.reload(from: logStore, range: .oneMinute)
@@ -147,8 +201,8 @@ final class GatewayDashboardSnapshotTests: XCTestCase {
         }
 
         XCTAssertEqual(dashboard.snapshot.totalRequests, 1)
-        XCTAssertNotEqual(dashboard.snapshot.chartBuckets, initialBuckets)
-        XCTAssertEqual(dashboard.snapshot.chartBuckets.reduce(0, +), 1)
+        XCTAssertNotEqual(dashboard.snapshot.outputTokenBuckets, initialBuckets)
+        XCTAssertEqual(dashboard.snapshot.outputTokenBuckets.reduce(0, +), 1)
     }
 
     private static let isoFormatter = ISO8601DateFormatter()
