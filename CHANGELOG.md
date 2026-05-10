@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.23 - 2026-05-10
+
+### Changed
+
+- Replaced request rate chart with interactive token+cache dual-line chart on Overview page. Select a time bucket to inspect per-bucket token data.
+
 ## 1.0.22 - 2026-05-10
 
 ### Added
