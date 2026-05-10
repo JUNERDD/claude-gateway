@@ -183,7 +183,7 @@ final class GatewayDashboardSnapshotTests: XCTestCase {
         try await waitForDashboard(dashboard) { snapshot in
             snapshot.generatedAt == now && snapshot.totalRequests == 1
         }
-        let initialBuckets = dashboard.snapshot.chartBuckets
+        let initialBuckets = dashboard.snapshot.outputTokenBuckets
 
         now = try XCTUnwrap(Self.isoFormatter.date(from: "2026-05-07T10:00:06Z"))
         dashboard.reload(from: logStore, range: .oneMinute)
@@ -192,8 +192,8 @@ final class GatewayDashboardSnapshotTests: XCTestCase {
         }
 
         XCTAssertEqual(dashboard.snapshot.totalRequests, 1)
-        XCTAssertNotEqual(dashboard.snapshot.chartBuckets, initialBuckets)
-        XCTAssertEqual(dashboard.snapshot.chartBuckets.reduce(0, +), 1)
+        XCTAssertNotEqual(dashboard.snapshot.outputTokenBuckets, initialBuckets)
+        XCTAssertEqual(dashboard.snapshot.outputTokenBuckets.reduce(0, +), 1)
     }
 
     private static let isoFormatter = ISO8601DateFormatter()
