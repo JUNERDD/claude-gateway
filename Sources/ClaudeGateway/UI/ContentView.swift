@@ -554,8 +554,8 @@ private struct OverviewPage: View {
 
             MetricsGrid(snapshot: snapshot)
 
-            CardSection(title: "Request Rate", systemImage: "chart.xyaxis.line") {
-                RequestRateChart(snapshot: snapshot)
+            CardSection(title: "Token Consumption", systemImage: "chart.xyaxis.line") {
+                TokenChart(snapshot: snapshot)
                     .frame(height: 210)
             }
         }
@@ -1064,20 +1064,31 @@ private struct ConfigurationFactRow: View {
     }
 }
 
-private struct RequestRateChart: View {
+private struct TokenChart: View {
     var snapshot: GatewayDashboardSnapshot
 
-    private var buckets: [ChartBucket] {
-        snapshot.chartBuckets.enumerated().map { ChartBucket(index: $0.offset + 1, count: $0.element) }
+    private struct TokenBucketPair: Identifiable {
+        let index: Int
+        let output: Int
+        let cache: Int
+        var id: Int { index }
     }
+
+    private var buckets: [TokenBucketPair] {
+        zip(snapshot.outputTokenBuckets, snapshot.cacheTokenBuckets)
+            .enumerated()
+            .map { TokenBucketPair(index: $0, output: $1.0, cache: $1.1) }
+    }
+
+    @State private var selectedIndex: Int?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
-                Text("\(AppFormat.rate(snapshot.requestRate)) req/s")
+                Text("\(AppFormat.compact(snapshot.outputTokens)) tokens")
                     .font(.title3.weight(.semibold))
                     .monospacedDigit()
-                Text("average")
+                Text("consumed")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -1086,41 +1097,71 @@ private struct RequestRateChart: View {
                     .foregroundStyle(.secondary)
             }
 
-            if snapshot.chartBuckets.contains(where: { $0 > 0 }) {
-                Chart(buckets) { bucket in
-                    LineMark(
-                        x: .value("Bucket", bucket.index),
-                        y: .value("Requests", bucket.count)
-                    )
-                    .interpolationMethod(.catmullRom)
-
-                    AreaMark(
-                        x: .value("Bucket", bucket.index),
-                        y: .value("Requests", bucket.count)
-                    )
-                    .interpolationMethod(.catmullRom)
-                    .foregroundStyle(.blue.opacity(0.12))
-                }
-                .chartXAxis(.hidden)
-                .chartYAxis {
-                    AxisMarks(position: .leading)
-                }
-            } else {
+            if snapshot.outputTokenBuckets.allSatisfy({ $0 == 0 })
+                && snapshot.cacheTokenBuckets.allSatisfy({ $0 == 0 })
+            {
                 CompactEmptyState(
-                    title: "No Requests",
+                    title: "No Token Data",
                     systemImage: "chart.xyaxis.line",
                     description: "No traffic was recorded in the selected range."
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            } else {
+                Chart(buckets) { bucket in
+                    LineMark(
+                        x: .value("Bucket", bucket.index),
+                        y: .value("Output Tokens", bucket.output)
+                    )
+                    .interpolationMethod(.catmullRom)
+                    .foregroundStyle(.blue)
+                    .lineStyle(StrokeStyle(lineWidth: 2))
+
+                    LineMark(
+                        x: .value("Bucket", bucket.index),
+                        y: .value("Cache Tokens", bucket.cache)
+                    )
+                    .interpolationMethod(.catmullRom)
+                    .foregroundStyle(.green)
+                    .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
+
+                    if let selected = selectedIndex, selected == bucket.index {
+                        RuleMark(x: .value("Bucket", bucket.index))
+                            .foregroundStyle(.secondary.opacity(0.3))
+                            .annotation(position: .top, alignment: .center) {
+                                VStack(spacing: 2) {
+                                    Text("Output: \(AppFormat.compact(bucket.output))")
+                                        .font(.caption.weight(.medium))
+                                        .foregroundStyle(.blue)
+                                    Text("Cache: \(AppFormat.compact(bucket.cache))")
+                                        .font(.caption.weight(.medium))
+                                        .foregroundStyle(.green)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+                            }
+                    }
+                }
+                .chartXSelection(value: $selectedIndex)
+                .chartXAxis(.hidden)
+                .chartYAxis {
+                    AxisMarks(position: .leading)
+                }
+                .chartLegend {
+                    HStack(spacing: 12) {
+                        HStack(spacing: 4) {
+                            Circle().fill(.blue).frame(width: 8, height: 8)
+                            Text("Output").font(.caption).foregroundStyle(.secondary)
+                        }
+                        HStack(spacing: 4) {
+                            Circle().fill(.green).frame(width: 8, height: 8)
+                            Text("Cache").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
             }
         }
     }
-}
-
-private struct ChartBucket: Identifiable {
-    let index: Int
-    let count: Int
-    var id: Int { index }
 }
 
 private struct RequestTable: View {

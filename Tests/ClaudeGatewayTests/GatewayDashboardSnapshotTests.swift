@@ -72,8 +72,53 @@ final class GatewayDashboardSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.averageLatencyMs, 725)
         XCTAssertEqual(snapshot.errorRate, 0.5)
         XCTAssertEqual(snapshot.issueCount, 1)
-        XCTAssertEqual(snapshot.chartBuckets.reduce(0, +), 2)
+        XCTAssertEqual(snapshot.outputTokenBuckets.reduce(0, +), 36)
+        XCTAssertEqual(snapshot.cacheTokenBuckets.reduce(0, +), 4)
         XCTAssertEqual(snapshot.issueRows.map(\.id), ["current-error"])
+
+        // Verify bucket shape: 12 elements, sum matches window
+        XCTAssertEqual(snapshot.outputTokenBuckets.count, 12)
+        XCTAssertEqual(snapshot.cacheTokenBuckets.count, 12)
+    }
+
+    func testTokenBucketsAggregateCorrectly() throws {
+        let now = try XCTUnwrap(Self.isoFormatter.date(from: "2026-05-07T10:00:00Z"))
+        let logText = [
+            event([
+                "type": "gateway_request",
+                "timestamp": "2026-05-07T09:59:50Z",
+                "requestID": "t1",
+                "method": "POST",
+                "path": "/v1/messages",
+            ]),
+            event([
+                "type": "gateway_response",
+                "timestamp": "2026-05-07T09:59:51Z",
+                "requestID": "t1",
+                "status": 200,
+                "outputTokens": 100,
+                "cacheReadInputTokens": 20,
+            ]),
+            event([
+                "type": "gateway_request",
+                "timestamp": "2026-05-07T09:59:55Z",
+                "requestID": "t2",
+                "method": "POST",
+                "path": "/v1/messages",
+            ]),
+            event([
+                "type": "gateway_response",
+                "timestamp": "2026-05-07T09:59:56Z",
+                "requestID": "t2",
+                "status": 200,
+                "outputTokens": 50,
+                "cacheReadInputTokens": 0,
+            ]),
+        ].joined(separator: "\n")
+
+        let snapshot = GatewayDashboardSnapshot.make(from: logText, range: .oneMinute, now: now)
+        XCTAssertEqual(snapshot.outputTokenBuckets.reduce(0, +), 150)
+        XCTAssertEqual(snapshot.cacheTokenBuckets.reduce(0, +), 20)
     }
 
     func testSnapshotUsesDeepSeekCacheHitRateWhenCacheMissTokensPresent() throws {

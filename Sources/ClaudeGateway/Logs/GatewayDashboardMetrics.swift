@@ -91,7 +91,8 @@ struct GatewayDashboardSnapshot {
     var averageLatencyMs: Double?
     var errorRate: Double
     var issueCount: Int
-    var chartBuckets: [Int]
+    var outputTokenBuckets: [Int]
+    var cacheTokenBuckets: [Int]
     var requestRows: [DashboardRequestRow]
 
     var issueRows: [DashboardRequestRow] {
@@ -111,7 +112,8 @@ struct GatewayDashboardSnapshot {
             averageLatencyMs: nil,
             errorRate: 0,
             issueCount: 0,
-            chartBuckets: Array(repeating: 0, count: 12),
+            outputTokenBuckets: Array(repeating: 0, count: 12),
+            cacheTokenBuckets: Array(repeating: 0, count: 12),
             requestRows: []
         )
     }
@@ -135,6 +137,7 @@ struct GatewayDashboardSnapshot {
             .prefix(500)
             .map(DashboardRequestRow.init(record:))
 
+        let (output, cache) = tokenBuckets(records: inWindow, start: windowStart, duration: range.duration)
         return GatewayDashboardSnapshot(
             range: range,
             generatedAt: now,
@@ -147,14 +150,10 @@ struct GatewayDashboardSnapshot {
             averageLatencyMs: averageLatency(inWindow),
             errorRate: errorRate(inWindow),
             issueCount: inWindow.filter(\.isIssue).count,
-            chartBuckets: bucketCounts(records: inWindow, start: windowStart, duration: range.duration),
+            outputTokenBuckets: output,
+            cacheTokenBuckets: cache,
             requestRows: Array(requestRows)
         )
-    }
-
-    var requestRate: Double {
-        guard range.duration > 0 else { return 0 }
-        return Double(totalRequests) / range.duration
     }
 
     var cacheHitRate: Double? {
@@ -181,19 +180,23 @@ struct GatewayDashboardSnapshot {
         return Double(records.filter(\.isIssue).count) / Double(records.count)
     }
 
-    private static func bucketCounts(records: [GatewayMetricRecord], start: Date, duration: TimeInterval) -> [Int] {
+    private static func tokenBuckets(records: [GatewayMetricRecord], start: Date, duration: TimeInterval) -> (output: [Int], cache: [Int]) {
         let bucketCount = 12
         let bucketDuration = duration / Double(bucketCount)
-        guard bucketDuration > 0 else { return Array(repeating: 0, count: bucketCount) }
+        guard bucketDuration > 0 else {
+            return (Array(repeating: 0, count: bucketCount), Array(repeating: 0, count: bucketCount))
+        }
 
-        var buckets = Array(repeating: 0, count: bucketCount)
+        var outputBuckets = Array(repeating: 0, count: bucketCount)
+        var cacheBuckets = Array(repeating: 0, count: bucketCount)
         for record in records {
             guard let date = record.sortDate else { continue }
             let offset = date.timeIntervalSince(start)
             let index = min(max(Int(offset / bucketDuration), 0), bucketCount - 1)
-            buckets[index] += 1
+            outputBuckets[index] += record.outputTokens
+            cacheBuckets[index] += record.cacheReadInputTokens
         }
-        return buckets
+        return (outputBuckets, cacheBuckets)
     }
 }
 
